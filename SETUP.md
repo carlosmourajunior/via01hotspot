@@ -2,120 +2,112 @@
 
 ## Pré-requisitos
 
-- Ubuntu/Debian com Node.js 20+ e Docker instalados
+- Ubuntu/Debian com Docker instalado (Node.js **não** é necessário no host — tudo roda em container)
 - UniFi Network (UniFi OS) acessível em `https://SEU_IP_DO_CONTROLLER:11443`
 - Uma API Key do UniFi gerada em **Settings → Control Plane → Integrations → API Keys**
 - Um número de WhatsApp dedicado (chip para a Evolution API)
 
 ---
 
-## 1. Subir a Evolution API
+## 1. Configurar as variáveis de ambiente
 
 ```bash
 cd unifi-hotspot
 cp backend/.env.example backend/.env
-# Edite o .env com suas credenciais
-
-docker compose up -d
+nano backend/.env
 ```
 
-Aguarde ~30 segundos e acesse `http://localhost:8081` para confirmar que está rodando.
+Preencha pelo menos:
+- `UNIFI_URL`, `UNIFI_API_KEY`, `UNIFI_SITE`
+- `EVOLUTION_API_KEY` (invente uma chave forte — ela também precisa estar no `.env` da raiz do projeto, veja abaixo)
+- `SUCCESS_REDIRECT_URL` (padrão: `https://www.via01.com.br`)
+- `ADMIN_USER` e `ADMIN_PASSWORD` (acesso ao painel `/admin`)
+
+O Docker Compose também lê um `.env` **na raiz do projeto** (arquivo diferente do `backend/.env`) para a variável `EVOLUTION_API_KEY` usada pelo container do Evolution API:
+
+```bash
+echo "EVOLUTION_API_KEY=$(grep EVOLUTION_API_KEY backend/.env | cut -d= -f2)" > .env
+```
+(garante que os dois arquivos usem a mesma chave)
+
+---
+
+## 2. Subir tudo com Docker Compose
+
+```bash
+docker compose up -d --build
+```
+
+Isso sobe três containers:
+- **evolution-api** — WhatsApp/Evolution API (porta `8081` no host)
+- **evolution-db** — Postgres usado pelo Evolution API
+- **backend** — API + portal (frontend já buildado dentro da imagem), servido na porta `80` do host
+
+Aguarde ~30 segundos e confira:
+```bash
+docker compose ps
+curl http://localhost/health
+```
 
 ### Criar instância e conectar o WhatsApp
 
 ```bash
-# Substitua SUA_API_KEY pela chave definida em EVOLUTION_API_KEY no .env
 curl -X POST http://localhost:8081/instance/create \
-  -H "apikey: SUA_API_KEY" \
+  -H "apikey: SUA_EVOLUTION_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"instanceName": "hotspot", "integration": "WHATSAPP-BAILEYS"}'
 
-# Gerar QR Code para conectar o celular
 curl http://localhost:8081/instance/connect/hotspot \
-  -H "apikey: SUA_API_KEY"
+  -H "apikey: SUA_EVOLUTION_API_KEY"
 # → Retorna um QR Code em base64; escaneie com o WhatsApp do chip dedicado
+# (ou acesse http://SEU_IP:8081/manager pelo navegador, se essa versão tiver o Manager visual)
 ```
 
 ---
 
-## 2. Instalar e rodar o Backend
-
-```bash
-cd backend
-cp .env.example .env
-# Preencha: UNIFI_URL, UNIFI_API_KEY, EVOLUTION_API_KEY
-
-npm install
-npm start
-# Backend roda em http://localhost:3000
-```
-
----
-
-## 3. Build e servir o Frontend
-
-```bash
-cd frontend
-npm install
-npm run build
-# Build vai para backend/public/
-```
-
-Adicione ao `backend/server.js` (já incluso — confirme que a linha abaixo está presente):
-
-```js
-import { fileURLToPath } from 'url';
-import path from 'path';
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-app.use(express.static(path.join(__dirname, 'public')));
-```
-
-> **Nota:** já está no server.js. Após o build, o backend serve o frontend em `http://SEU_IP:3000`.
-
----
-
-## 4. Configurar o Guest Portal no UniFi
+## 3. Configurar o Guest Portal no UniFi
 
 1. Em **Settings → Networks**, confirme que a rede por trás do Wi-Fi de convidados está marcada como **Guest Network**.
 2. Em **Settings → WiFi → [sua rede de convidados]**, troque a segurança de WPA para **Open** (sem senha) — quem autentica o acesso é o portal, não uma senha fixa.
 3. Ainda na mesma rede, ative **Guest Portal** → **Authentication: External Portal Server**.
-4. Em **Redirect URL / Landing Page URL**, coloque:
+4. Em **Redirect URL / Landing Page URL**, coloque **apenas o IP do servidor, sem porta** (o campo do UniFi assume a porta 80 por padrão, que é exatamente onde o backend escuta):
    ```
-   http://SEU_IP_DO_SERVIDOR:3000
+   http://SEU_IP_DO_SERVIDOR
    ```
 5. Salve.
 
 Quando um cliente conectar no Wi-Fi de convidados, o UniFi vai redirecionar para algo como:
 ```
-http://SEU_IP:3000?id=XX:XX:XX:XX:XX:XX&ap=YY:YY:YY:YY:YY:YY&t=...&url=...&ssid=...
+http://SEU_IP?id=XX:XX:XX:XX:XX:XX&ap=YY:YY:YY:YY:YY:YY&t=...&url=...&ssid=...
 ```
 O portal lê esses parâmetros automaticamente (o MAC do cliente vem no parâmetro `id`).
 
 ---
 
-## 5. Identidade visual e painel administrativo
+## 4. Identidade visual e painel administrativo
 
-Coloque o logo da Via01 em `frontend/public/logo-via01.png` (o Vite serve arquivos de `public/` na raiz do site) e rode `npm run build` de novo.
+O logo da Via01 fica em `frontend/public/logo-via01.png` (já incluso no build da imagem).
 
-Configure no `backend/.env`:
-```
-SUCCESS_REDIRECT_URL=https://www.via01.com.br
-ADMIN_USER=admin
-ADMIN_PASSWORD=uma_senha_forte
-```
+O painel administrativo fica em **`http://SEU_IP_DO_SERVIDOR/admin`** (pede usuário/senha via autenticação básica do navegador — as credenciais são `ADMIN_USER`/`ADMIN_PASSWORD` do `backend/.env`) e lista todos os acessos ao hotspot, marcando quem já é cliente Via01 e quem é um lead.
 
-O painel fica em `http://SEU_IP_DO_SERVIDOR/admin` (pede usuário/senha via autenticação básica do navegador) e lista todos os acessos ao hotspot, marcando quem já é cliente Via01 e quem é um lead. Os registros ficam salvos em `backend/data/guests.jsonl` (não versionado no Git, por conter dados pessoais).
+### Onde ficam os dados
+
+Os registros de acesso (telefone, MAC, se é cliente Via01, data/hora) ficam em `backend/data/guests.jsonl`, um arquivo de texto (uma linha = um acesso) montado como **volume** do host para dentro do container (`./backend/data:/app/data`). Ou seja:
+- Os dados **sobrevivem** a `docker compose down`, rebuild da imagem ou reinício do container.
+- Ficam fisicamente no servidor em `~/via01hotspot/backend/data/guests.jsonl` — dá pra abrir com `cat`/`less` ou copiar pra backup.
+- **Não** vão pro Git (contém dados pessoais — já está no `.gitignore`).
+- Se quiser resetar o histórico, basta apagar esse arquivo (o backend recria automaticamente).
+
+Mesma lógica já se aplicava ao WhatsApp (`evolution_instances`) e ao Postgres (`evolution_pgdata`) — ambos em volumes nomeados do Docker, que também sobrevivem a rebuilds.
 
 ---
 
-## 6. Rodar em produção com PM2
+## Aplicando atualizações
 
+Sempre que o código mudar (`git pull`), reconstrua e suba de novo:
 ```bash
-npm install -g pm2
-cd backend
-pm2 start server.js --name hotspot-backend
-pm2 save
-pm2 startup  # configura reinício automático no boot
+git pull
+docker compose up -d --build
 ```
 
 ---
@@ -124,16 +116,17 @@ pm2 startup  # configura reinício automático no boot
 
 ```
 unifi-hotspot/
-├── docker-compose.yml       # Evolution API + Postgres
+├── docker-compose.yml       # Evolution API + Postgres + Backend
 ├── backend/
-│   ├── server.js            # API Express (send-otp, verify-otp)
+│   ├── Dockerfile           # build multi-stage (frontend + backend)
+│   ├── server.js            # API Express (send-otp, verify-otp, /admin)
 │   ├── package.json
 │   ├── .env.example
-│   ├── data/                # guests.jsonl — registro de acessos (gerado em runtime)
-│   └── public/              # Frontend buildado (gerado pelo npm run build)
+│   └── data/                # guests.jsonl — registro de acessos (volume persistente)
 └── frontend/
-    ├── src/App.jsx           # Portal captivo em React
-    ├── vite.config.js        # Build → ../backend/public
+    ├── src/App.jsx           # Portal captivo + painel admin, em React
+    ├── public/logo-via01.png
+    ├── vite.config.js        # Build → ../backend/public (empacotado na imagem)
     └── package.json
 ```
 
@@ -144,9 +137,9 @@ unifi-hotspot/
 ```
 Cliente conecta no Wi-Fi
         ↓
-UniFi redireciona → http://SEU_IP:3000?mac=...&ap=...&url=...
+UniFi redireciona → http://SEU_IP?id=...&ap=...&url=...
         ↓
-Portal React: usuário digita telefone
+Portal React: usuário digita telefone (e marca se já é cliente Via01)
         ↓
 Backend → Evolution API → WhatsApp OTP
         ↓

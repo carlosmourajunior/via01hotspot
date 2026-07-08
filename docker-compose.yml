@@ -28,6 +28,26 @@ services:
     volumes:
       - evolution_pgdata:/var/lib/postgresql/data
 
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: hotspot-backend
+    restart: unless-stopped
+    ports:
+      - "80:3000"
+    env_file:
+      - ./backend/.env
+    environment:
+      # Dentro da rede do Docker Compose, o Evolution API é acessível
+      # pelo nome do serviço e pela porta interna (não a porta 8081 do host).
+      EVOLUTION_URL: http://evolution-api:8080
+      PORT: 3000
+    volumes:
+      - ./backend/data:/app/data
+    depends_on:
+      - evolution-api
+
 volumes:
   evolution_instances:
   evolution_pgdata:
