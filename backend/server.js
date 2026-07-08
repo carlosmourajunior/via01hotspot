@@ -37,7 +37,17 @@ app.get('/api/admin/guests', requireAdminAuth, (_req, res) => {
 });
 
 // Serve o frontend buildado
-app.use(express.static(path.join(__dirname, 'public')));
+// (index.html nunca é cacheado pelo navegador — os nomes dos arquivos em
+// /assets mudam a cada build, então esses sim podem ser cacheados sem risco)
+app.use(
+  express.static(path.join(__dirname, 'public'), {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  })
+);
 
 // ─── Registro de acessos (JSON Lines) ────────────────────────────
 const dataDir = path.join(__dirname, 'data');
@@ -212,6 +222,7 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 // SPA fallback
 app.get('*', (_req, res) => {
+  res.set('Cache-Control', 'no-cache');
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
