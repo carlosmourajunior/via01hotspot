@@ -19,19 +19,19 @@ cp backend/.env.example backend/.env
 docker compose up -d
 ```
 
-Aguarde ~30 segundos e acesse `http://localhost:8080` para confirmar que está rodando.
+Aguarde ~30 segundos e acesse `http://localhost:8081` para confirmar que está rodando.
 
 ### Criar instância e conectar o WhatsApp
 
 ```bash
 # Substitua SUA_API_KEY pela chave definida em EVOLUTION_API_KEY no .env
-curl -X POST http://localhost:8080/instance/create \
+curl -X POST http://localhost:8081/instance/create \
   -H "apikey: SUA_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"instanceName": "hotspot", "integration": "WHATSAPP-BAILEYS"}'
 
 # Gerar QR Code para conectar o celular
-curl http://localhost:8080/instance/connect/hotspot \
+curl http://localhost:8081/instance/connect/hotspot \
   -H "apikey: SUA_API_KEY"
 # → Retorna um QR Code em base64; escaneie com o WhatsApp do chip dedicado
 ```
