@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 
 // Lê parâmetros que o UniFi envia na URL do portal captivo:
-// ?mac=XX:XX:XX:XX:XX:XX&ap=XX:XX:XX:XX:XX:XX&id=...&url=https://...
+// ?id=XX:XX:XX:XX:XX:XX&ap=XX:XX:XX:XX:XX:XX&t=...&url=...&ssid=...
+// (o UniFi manda o MAC do cliente no parâmetro "id"; "mac" fica como fallback
+// para compatibilidade com outras versões/controladores)
 function getParams() {
   const p = new URLSearchParams(window.location.search);
   return {
-    mac: p.get('mac') || '',
+    mac: p.get('id') || p.get('mac') || '',
     ap: p.get('ap') || '',
     redirectUrl: p.get('url') || 'https://www.google.com',
   };
