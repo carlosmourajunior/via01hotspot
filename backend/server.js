@@ -4,6 +4,7 @@ import cors from 'cors';
 import axios from 'axios';
 import https from 'https';
 import NodeCache from 'node-cache';
+import session from 'express-session';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import fs from 'fs';
@@ -14,24 +15,41 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// ─── Painel administrativo (Basic Auth) ──────────────────────────
+// ─── Painel administrativo (login por sessão) ────────────────────
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || 'via01-hotspot-troque-este-segredo',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      sameSite: 'lax',
+      maxAge: 1000 * 60 * 60 * 8, // 8 horas
+    },
+  })
+);
+
 function requireAdminAuth(req, res, next) {
-  const expectedUser = process.env.ADMIN_USER || 'admin';
-  const expectedPassword = process.env.ADMIN_PASSWORD || 'admin';
-  const header = req.headers.authorization || '';
-
-  const [user, password] = header.startsWith('Basic ')
-    ? Buffer.from(header.slice(6), 'base64').toString().split(':')
-    : [];
-
-  if (user !== expectedUser || password !== expectedPassword) {
-    res.set('WWW-Authenticate', 'Basic realm="Painel Via01"');
-    return res.status(401).send('Autenticação necessária.');
-  }
-  next();
+  if (req.session?.authenticated) return next();
+  return res.status(401).json({ error: 'Não autenticado.' });
 }
 
-app.use('/admin', requireAdminAuth);
+app.post('/api/admin/login', (req, res) => {
+  const { username, password } = req.body;
+  const expectedUser = process.env.ADMIN_USER || 'admin';
+  const expectedPassword = process.env.ADMIN_PASSWORD || 'admin';
+
+  if (username !== expectedUser || password !== expectedPassword) {
+    return res.status(401).json({ error: 'Usuário ou senha inválidos.' });
+  }
+  req.session.authenticated = true;
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/logout', (req, res) => {
+  req.session.destroy(() => res.json({ ok: true }));
+});
+
 app.get('/api/admin/guests', requireAdminAuth, (_req, res) => {
   res.json(readGuestRecords());
 });

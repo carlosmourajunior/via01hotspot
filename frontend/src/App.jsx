@@ -253,51 +253,126 @@ function PortalApp() {
   );
 }
 
-function StatCard({ label, value }) {
+function StatCard({ label, value, active }) {
   return (
-    <div className="bg-white rounded-xl shadow p-4 border border-gray-100">
+    <div
+      className={`w-full bg-white rounded-xl shadow p-4 border transition-colors ${
+        active ? 'border-black ring-1 ring-black' : 'border-gray-100 hover:border-gray-300'
+      }`}
+    >
       <p className="text-gray-400 text-xs uppercase tracking-wide">{label}</p>
       <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
     </div>
   );
 }
 
-function AdminPage() {
-  const [guests, setGuests] = useState(null);
+function AdminLogin({ onLoggedIn }) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    fetch('/api/admin/guests')
-      .then((res) => {
-        if (!res.ok) throw new Error('Não autorizado.');
-        return res.json();
-      })
-      .then(setGuests)
-      .catch((err) => setError(err.message));
-  }, []);
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Falha no login.');
+      onLoggedIn();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  if (error) {
-    return <div className="min-h-screen flex items-center justify-center text-red-600">{error}</div>;
-  }
-  if (!guests) {
-    return <div className="min-h-screen flex items-center justify-center text-gray-500">Carregando...</div>;
-  }
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-8 border border-gray-100">
+        <div className="text-center mb-8">
+          <Logo className="h-14 mx-auto mb-4" />
+          <h1 className="text-xl font-bold text-gray-900">Painel Administrativo</h1>
+          <p className="text-gray-500 text-sm mt-1">Entre para ver os acessos ao hotspot</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Usuário</label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="w-full px-3 py-3 border border-gray-300 rounded-xl text-sm text-gray-800 outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+              autoComplete="username"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Senha</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-3 py-3 border border-gray-300 rounded-xl text-sm text-gray-800 outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+              autoComplete="current-password"
+            />
+          </div>
+
+          {error && <p className="text-red-500 text-sm text-center">{error}</p>}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-black hover:bg-gray-800 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors"
+          >
+            {loading ? 'Entrando...' : 'Entrar'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function AdminDashboard({ guests, onLogout }) {
+  const [filter, setFilter] = useState('all'); // all | clients | leads
 
   const clients = guests.filter((g) => g.isClient).length;
   const leads = guests.length - clients;
+  const visibleGuests =
+    filter === 'clients' ? guests.filter((g) => g.isClient) : filter === 'leads' ? guests.filter((g) => !g.isClient) : guests;
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
       <div className="max-w-4xl mx-auto">
-        <div className="flex items-center gap-3 mb-6">
-          <Logo className="h-10" />
-          <h1 className="text-xl font-bold text-gray-900">Painel do Hotspot</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <div className="flex items-center gap-3">
+            <Logo className="h-9" />
+            <h1 className="text-lg sm:text-xl font-bold text-gray-900">Painel do Hotspot</h1>
+          </div>
+          <button
+            onClick={onLogout}
+            className="text-sm text-gray-500 hover:text-gray-900 hover:underline"
+          >
+            Sair
+          </button>
         </div>
 
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          <StatCard label="Total de acessos" value={guests.length} />
-          <StatCard label="Clientes Via01" value={clients} />
-          <StatCard label="Possíveis leads" value={leads} />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+          <button onClick={() => setFilter('all')} className="text-left">
+            <StatCard label="Total de acessos" value={guests.length} active={filter === 'all'} />
+          </button>
+          <button onClick={() => setFilter('clients')} className="text-left">
+            <StatCard label="Clientes Via01" value={clients} active={filter === 'clients'} />
+          </button>
+          <button onClick={() => setFilter('leads')} className="text-left">
+            <StatCard label="Possíveis leads" value={leads} active={filter === 'leads'} />
+          </button>
         </div>
 
         <div className="bg-white rounded-xl shadow overflow-hidden overflow-x-auto">
@@ -311,7 +386,7 @@ function AdminPage() {
               </tr>
             </thead>
             <tbody>
-              {guests.map((g, i) => (
+              {visibleGuests.map((g, i) => (
                 <tr key={i} className="border-t border-gray-100">
                   <td className="px-4 py-3 whitespace-nowrap">{formatPhoneDisplay(g.phone)}</td>
                   <td className="px-4 py-3">
@@ -331,7 +406,7 @@ function AdminPage() {
                   </td>
                 </tr>
               ))}
-              {guests.length === 0 && (
+              {visibleGuests.length === 0 && (
                 <tr>
                   <td colSpan={4} className="px-4 py-8 text-center text-gray-400">
                     Nenhum acesso registrado ainda.
@@ -344,6 +419,62 @@ function AdminPage() {
       </div>
     </div>
   );
+}
+
+function AdminPage() {
+  const [authed, setAuthed] = useState(null); // null = verificando, true/false depois
+  const [guests, setGuests] = useState(null);
+  const [error, setError] = useState('');
+
+  function loadGuests() {
+    setError('');
+    return fetch('/api/admin/guests')
+      .then((res) => {
+        if (res.status === 401) {
+          setAuthed(false);
+          return null;
+        }
+        if (!res.ok) throw new Error('Erro ao carregar os dados.');
+        return res.json();
+      })
+      .then((data) => {
+        if (!data) return;
+        setGuests(data);
+        setAuthed(true);
+      })
+      .catch((err) => setError(err.message));
+  }
+
+  useEffect(() => {
+    loadGuests();
+  }, []);
+
+  async function handleLogout() {
+    await fetch('/api/admin/logout', { method: 'POST' });
+    setGuests(null);
+    setAuthed(false);
+  }
+
+  if (authed === null) {
+    return <div className="min-h-screen flex items-center justify-center text-gray-400">Carregando...</div>;
+  }
+
+  if (!authed) {
+    return <AdminLogin onLoggedIn={loadGuests} />;
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 text-red-600 p-4 text-center">
+        <p>{error}</p>
+        <button onClick={loadGuests} className="text-sm underline text-gray-500">
+          Tentar de novo
+        </button>
+      </div>
+    );
+  }
+
+  return <AdminDashboard guests={guests} onLogout={handleLogout} />;
 }
 
 export default function App() {
