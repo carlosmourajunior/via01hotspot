@@ -6,6 +6,7 @@ import https from 'https';
 import NodeCache from 'node-cache';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import fs from 'fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -13,8 +14,49 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+// ─── Painel administrativo (Basic Auth) ──────────────────────────
+function requireAdminAuth(req, res, next) {
+  const expectedUser = process.env.ADMIN_USER || 'admin';
+  const expectedPassword = process.env.ADMIN_PASSWORD || 'admin';
+  const header = req.headers.authorization || '';
+
+  const [user, password] = header.startsWith('Basic ')
+    ? Buffer.from(header.slice(6), 'base64').toString().split(':')
+    : [];
+
+  if (user !== expectedUser || password !== expectedPassword) {
+    res.set('WWW-Authenticate', 'Basic realm="Painel Via01"');
+    return res.status(401).send('Autenticação necessária.');
+  }
+  next();
+}
+
+app.use('/admin', requireAdminAuth);
+app.get('/api/admin/guests', requireAdminAuth, (_req, res) => {
+  res.json(readGuestRecords());
+});
+
 // Serve o frontend buildado
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ─── Registro de acessos (JSON Lines) ────────────────────────────
+const dataDir = path.join(__dirname, 'data');
+const guestsFile = path.join(dataDir, 'guests.jsonl');
+fs.mkdirSync(dataDir, { recursive: true });
+
+function appendGuestRecord(record) {
+  fs.appendFileSync(guestsFile, JSON.stringify(record) + '\n');
+}
+
+function readGuestRecords() {
+  if (!fs.existsSync(guestsFile)) return [];
+  return fs
+    .readFileSync(guestsFile, 'utf-8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line))
+    .reverse();
+}
 
 // ─── Cache em memória para OTPs ──────────────────────────────────
 // Chave: telefone → valor: { otp, mac, ap, url }
@@ -104,7 +146,7 @@ function generateOTP(length = 6) {
  * Body: { phone, mac, ap, redirectUrl }
  */
 app.post('/api/send-otp', async (req, res) => {
-  const { phone, mac, ap, redirectUrl } = req.body;
+  const { phone, mac, ap, redirectUrl, isClient } = req.body;
 
   if (!phone || !mac) {
     return res.status(400).json({ error: 'Telefone e MAC são obrigatórios.' });
@@ -119,7 +161,7 @@ app.post('/api/send-otp', async (req, res) => {
 
   try {
     await sendWhatsAppOTP(cleanPhone, otp);
-    otpCache.set(cleanPhone, { otp, mac, ap, redirectUrl });
+    otpCache.set(cleanPhone, { otp, mac, ap, redirectUrl, isClient: !!isClient });
     console.log(`[OTP] Enviado para ${cleanPhone} | MAC: ${mac}`);
     res.json({ ok: true });
   } catch (err) {
@@ -150,8 +192,15 @@ app.post('/api/verify-otp', async (req, res) => {
   try {
     await unifiAuthorize(entry.mac);
     otpCache.del(cleanPhone);
+    appendGuestRecord({
+      phone: cleanPhone,
+      mac: entry.mac,
+      ap: entry.ap || null,
+      isClient: !!entry.isClient,
+      connectedAt: new Date().toISOString(),
+    });
     console.log(`[AUTH] MAC ${entry.mac} autorizado para telefone ${cleanPhone}`);
-    res.json({ ok: true, redirectUrl: entry.redirectUrl || 'https://www.google.com' });
+    res.json({ ok: true, redirectUrl: process.env.SUCCESS_REDIRECT_URL || 'https://www.via01.com.br' });
   } catch (err) {
     console.error('[AUTH] Erro ao autorizar no UniFi:', err.response?.data || err.message);
     res.status(502).json({ error: 'Erro ao liberar o acesso. Contate o suporte.' });

@@ -9,16 +9,34 @@ function getParams() {
   return {
     mac: p.get('id') || p.get('mac') || '',
     ap: p.get('ap') || '',
-    redirectUrl: p.get('url') || 'https://www.google.com',
+    redirectUrl: p.get('url') || 'https://www.via01.com.br',
   };
+}
+
+function formatPhone(raw) {
+  const d = raw.replace(/\D/g, '').slice(0, 11);
+  if (d.length <= 2) return d;
+  if (d.length <= 7) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+}
+
+function formatPhoneDisplay(raw) {
+  const d = (raw || '').replace(/\D/g, '');
+  const local = d.startsWith('55') ? d.slice(2) : d;
+  return formatPhone(local) || raw;
+}
+
+function Logo({ className }) {
+  return <img src="/logo-via01.png" alt="Via01" className={className} />;
 }
 
 const STEPS = { PHONE: 'phone', OTP: 'otp', SUCCESS: 'success' };
 
-export default function App() {
+function PortalApp() {
   const { mac, ap, redirectUrl } = getParams();
   const [step, setStep] = useState(STEPS.PHONE);
   const [phone, setPhone] = useState('');
+  const [isClient, setIsClient] = useState(false);
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -31,13 +49,6 @@ export default function App() {
     const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
     return () => clearTimeout(t);
   }, [countdown]);
-
-  function formatPhone(raw) {
-    const d = raw.replace(/\D/g, '').slice(0, 11);
-    if (d.length <= 2) return d;
-    if (d.length <= 7) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
-    return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
-  }
 
   async function handleSendOTP(e) {
     e?.preventDefault();
@@ -52,7 +63,7 @@ export default function App() {
       const res = await fetch('/api/send-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: clean, mac, ap, redirectUrl }),
+        body: JSON.stringify({ phone: clean, mac, ap, redirectUrl, isClient }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erro ao enviar.');
@@ -109,12 +120,12 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-8">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-8 border border-gray-100">
         {/* Logo / Header */}
         <div className="text-center mb-8">
-          <div className="text-5xl mb-3">📶</div>
-          <h1 className="text-2xl font-bold text-gray-800">Acesso Wi-Fi</h1>
+          <Logo className="h-14 mx-auto mb-4" />
+          <h1 className="text-xl font-bold text-gray-900">Acesso Wi-Fi</h1>
           <p className="text-gray-500 text-sm mt-1">
             {step === STEPS.PHONE && 'Digite seu WhatsApp para receber o código'}
             {step === STEPS.OTP && `Código enviado para ${phone}`}
@@ -129,7 +140,7 @@ export default function App() {
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Número do WhatsApp
               </label>
-              <div className="flex items-center border border-gray-300 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-transparent">
+              <div className="flex items-center border border-gray-300 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-black focus-within:border-transparent">
                 <span className="px-3 py-3 bg-gray-50 text-gray-500 text-sm border-r border-gray-300 select-none">
                   🇧🇷 +55
                 </span>
@@ -145,12 +156,22 @@ export default function App() {
               </div>
             </div>
 
+            <label className="flex items-center gap-2 text-sm text-gray-600 select-none">
+              <input
+                type="checkbox"
+                checked={isClient}
+                onChange={(e) => setIsClient(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 text-black focus:ring-black"
+              />
+              Já sou cliente Via01
+            </label>
+
             {error && <p className="text-red-500 text-sm text-center">{error}</p>}
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors"
+              className="w-full bg-black hover:bg-gray-800 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors"
             >
               {loading ? 'Enviando...' : 'Receber código via WhatsApp'}
             </button>
@@ -175,7 +196,7 @@ export default function App() {
                     value={digit}
                     onChange={(e) => handleOtpChange(idx, e.target.value)}
                     onKeyDown={(e) => handleOtpKeyDown(idx, e)}
-                    className="w-11 h-13 text-center text-xl font-bold border-2 border-gray-300 rounded-xl focus:border-indigo-500 focus:outline-none transition-colors"
+                    className="w-11 h-13 text-center text-xl font-bold border-2 border-gray-300 rounded-xl focus:border-black focus:outline-none transition-colors"
                     autoFocus={idx === 0}
                   />
                 ))}
@@ -187,7 +208,7 @@ export default function App() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors"
+              className="w-full bg-black hover:bg-gray-800 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors"
             >
               {loading ? 'Verificando...' : 'Conectar'}
             </button>
@@ -199,7 +220,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={handleSendOTP}
-                  className="text-indigo-600 text-sm hover:underline"
+                  className="text-gray-900 text-sm hover:underline"
                 >
                   Reenviar código
                 </button>
@@ -220,14 +241,111 @@ export default function App() {
           <div className="text-center space-y-4">
             <div className="text-6xl animate-bounce">✅</div>
             <p className="text-gray-700 font-medium">Internet liberada!</p>
-            <p className="text-gray-400 text-sm">Redirecionando em instantes...</p>
+            <p className="text-gray-400 text-sm">Redirecionando para via01.com.br...</p>
           </div>
         )}
 
         <p className="text-center text-gray-300 text-xs mt-8">
-          Powered by UniFi Hotspot Portal
+          Rede oferecida por Via01
         </p>
       </div>
     </div>
   );
+}
+
+function StatCard({ label, value }) {
+  return (
+    <div className="bg-white rounded-xl shadow p-4 border border-gray-100">
+      <p className="text-gray-400 text-xs uppercase tracking-wide">{label}</p>
+      <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
+    </div>
+  );
+}
+
+function AdminPage() {
+  const [guests, setGuests] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetch('/api/admin/guests')
+      .then((res) => {
+        if (!res.ok) throw new Error('Não autorizado.');
+        return res.json();
+      })
+      .then(setGuests)
+      .catch((err) => setError(err.message));
+  }, []);
+
+  if (error) {
+    return <div className="min-h-screen flex items-center justify-center text-red-600">{error}</div>;
+  }
+  if (!guests) {
+    return <div className="min-h-screen flex items-center justify-center text-gray-500">Carregando...</div>;
+  }
+
+  const clients = guests.filter((g) => g.isClient).length;
+  const leads = guests.length - clients;
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-4xl mx-auto">
+        <div className="flex items-center gap-3 mb-6">
+          <Logo className="h-10" />
+          <h1 className="text-xl font-bold text-gray-900">Painel do Hotspot</h1>
+        </div>
+
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          <StatCard label="Total de acessos" value={guests.length} />
+          <StatCard label="Clientes Via01" value={clients} />
+          <StatCard label="Possíveis leads" value={leads} />
+        </div>
+
+        <div className="bg-white rounded-xl shadow overflow-hidden overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-black text-white text-left">
+              <tr>
+                <th className="px-4 py-3">Telefone</th>
+                <th className="px-4 py-3">Tipo</th>
+                <th className="px-4 py-3">MAC</th>
+                <th className="px-4 py-3">Data/Hora</th>
+              </tr>
+            </thead>
+            <tbody>
+              {guests.map((g, i) => (
+                <tr key={i} className="border-t border-gray-100">
+                  <td className="px-4 py-3 whitespace-nowrap">{formatPhoneDisplay(g.phone)}</td>
+                  <td className="px-4 py-3">
+                    {g.isClient ? (
+                      <span className="inline-block px-2 py-0.5 rounded-full bg-black text-white text-xs font-medium">
+                        Cliente Via01
+                      </span>
+                    ) : (
+                      <span className="inline-block px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 text-xs font-medium">
+                        Lead
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{g.mac}</td>
+                  <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
+                    {new Date(g.connectedAt).toLocaleString('pt-BR')}
+                  </td>
+                </tr>
+              ))}
+              {guests.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-4 py-8 text-center text-gray-400">
+                    Nenhum acesso registrado ainda.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  return window.location.pathname.startsWith('/admin') ? <AdminPage /> : <PortalApp />;
 }

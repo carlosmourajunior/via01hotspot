@@ -85,15 +85,30 @@ app.use(express.static(path.join(__dirname, 'public')));
    ```
 5. Salve.
 
-Quando um cliente conectar no Wi-Fi de convidados, o UniFi vai redirecionar para:
+Quando um cliente conectar no Wi-Fi de convidados, o UniFi vai redirecionar para algo como:
 ```
-http://SEU_IP:3000?mac=XX:XX:XX:XX&ap=YY:YY:YY:YY&url=https://destino.com
+http://SEU_IP:3000?id=XX:XX:XX:XX:XX:XX&ap=YY:YY:YY:YY:YY:YY&t=...&url=...&ssid=...
 ```
-O portal lê esses parâmetros automaticamente.
+O portal lê esses parâmetros automaticamente (o MAC do cliente vem no parâmetro `id`).
 
 ---
 
-## 5. Rodar em produção com PM2
+## 5. Identidade visual e painel administrativo
+
+Coloque o logo da Via01 em `frontend/public/logo-via01.png` (o Vite serve arquivos de `public/` na raiz do site) e rode `npm run build` de novo.
+
+Configure no `backend/.env`:
+```
+SUCCESS_REDIRECT_URL=https://www.via01.com.br
+ADMIN_USER=admin
+ADMIN_PASSWORD=uma_senha_forte
+```
+
+O painel fica em `http://SEU_IP_DO_SERVIDOR/admin` (pede usuário/senha via autenticação básica do navegador) e lista todos os acessos ao hotspot, marcando quem já é cliente Via01 e quem é um lead. Os registros ficam salvos em `backend/data/guests.jsonl` (não versionado no Git, por conter dados pessoais).
+
+---
+
+## 6. Rodar em produção com PM2
 
 ```bash
 npm install -g pm2
@@ -114,6 +129,7 @@ unifi-hotspot/
 │   ├── server.js            # API Express (send-otp, verify-otp)
 │   ├── package.json
 │   ├── .env.example
+│   ├── data/                # guests.jsonl — registro de acessos (gerado em runtime)
 │   └── public/              # Frontend buildado (gerado pelo npm run build)
 └── frontend/
     ├── src/App.jsx           # Portal captivo em React
@@ -138,5 +154,5 @@ Usuário digita código
         ↓
 Backend → UniFi Network Integration API (API Key) → AUTHORIZE_GUEST_ACCESS (libera o MAC)
         ↓
-Redireciona para a URL original
+Registra o acesso (backend/data/guests.jsonl) e redireciona para via01.com.br
 ```

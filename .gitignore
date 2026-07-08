@@ -1,5 +1,6 @@
 node_modules/
 .env
 backend/public/
+backend/data/
 .claude/settings.local.json
 *.log
