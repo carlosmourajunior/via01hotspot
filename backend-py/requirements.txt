@@ -12,3 +12,5 @@ psycopg2-binary==2.9.9
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 bcrypt==3.2.2
+# Fusos horários para o agendador de sync (zoneinfo)
+tzdata==2024.1

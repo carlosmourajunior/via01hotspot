@@ -4,12 +4,14 @@ import json
 import math
 import time
 import base64
+import asyncio
 import hashlib
 import unicodedata
 from os import environ
 from pathlib import Path
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher, get_close_matches
+from zoneinfo import ZoneInfo
 
 import requests
 import pandas as pd
@@ -24,7 +26,7 @@ from passlib.context import CryptContext
 from dotenv import load_dotenv
 
 import db as hotspot_db
-from guests_admin import router as guests_router
+from guests_admin import router as guests_router, reclassificar_guests
 
 load_dotenv()
 
@@ -612,6 +614,46 @@ def startup():
         init_db()
         hotspot_db.init_hotspot_tables()
         _criar_admin_padrao()
+
+
+# ── Sincronização IXC agendada (diária) ──────────────────────────────────────
+# Roda todos os dias no horário IXC_SYNC_HORA (HH:MM, hora local; vazio desativa).
+# Os botões manuais da tela Admin continuam funcionando normalmente.
+IXC_SYNC_HORA = environ.get("IXC_SYNC_HORA", "08:00")
+_TZ_LOCAL = ZoneInfo(environ.get("TZ", "America/Sao_Paulo"))
+
+
+async def _agendador_sync_ixc():
+    hora, minuto = (int(x) for x in IXC_SYNC_HORA.split(":"))
+    while True:
+        agora = datetime.now(_TZ_LOCAL)
+        proximo = agora.replace(hour=hora, minute=minuto, second=0, microsecond=0)
+        if proximo <= agora:
+            proximo += timedelta(days=1)
+        await asyncio.sleep((proximo - agora).total_seconds())
+
+        print(f"[SYNC] Sincronização IXC agendada iniciando ({datetime.now(_TZ_LOCAL):%d/%m/%Y %H:%M})")
+        etapas = [
+            ("clientes",  ixc_sync_clientes),
+            ("contratos", ixc_sync_contratos),
+            ("logins",    ixc_sync_logins),
+            ("os",        ixc_sync_os),
+            ("reclassificar-guests", reclassificar_guests),
+        ]
+        for nome, fn in etapas:
+            try:
+                resultado = await asyncio.to_thread(fn)
+                print(f"[SYNC] {nome}: {resultado.get('message', 'ok')}")
+            except Exception as e:
+                print(f"[SYNC] Erro em {nome}: {e}")
+        print("[SYNC] Sincronização agendada concluída.")
+
+
+@app.on_event("startup")
+async def _inicia_agendador_sync():
+    if IXC_SYNC_HORA and IXC_TOKEN and DATABASE_URL:
+        asyncio.create_task(_agendador_sync_ixc())
+        print(f"[SYNC] Agendador diário ativo — próxima execução às {IXC_SYNC_HORA} ({_TZ_LOCAL.key})")
 
 
 def _row_hash(row: dict, colunas: list) -> str:
