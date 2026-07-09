@@ -24,21 +24,15 @@ curl http://localhost:8090/health       # portal FastAPI ok (em paralelo)
 curl http://localhost/health            # Node continua atendendo na 80
 ```
 
-## 3. Migrar os dados do controleinterno antigo
+## 3. Popular os dados (sem dump)
 
-No dia da migração, **parar de usar a stack antiga** (evita divergência):
+O controleinterno antigo estava em fase de testes — não há dados a migrar.
+O banco novo começa vazio; o usuário bootstrap `admin/admin123` é criado
+automaticamente no primeiro start (trocar a senha depois).
 
-```bash
-# na máquina/pasta da stack antiga do controleinterno:
-docker exec <container-db-antigo> pg_dump -U controle -Fc controle > controle.dump
-
-# no servidor do hotspot:
-docker exec -i controle-db pg_restore -U controle -d controle --clean --if-exists < controle.dump
-docker compose restart admin
-```
-
-Validar: login em `http://<servidor>:8080` com usuário real; Dashboard e OS IXC
-com dados históricos. Manter a stack antiga desligada mas intacta (rollback).
+Popular pela própria interface em `http://<servidor>:8080`:
+- Tela **Admin** → botões de sincronização IXC (clientes, OS, contratos, logins)
+- Sincronizações de planilhas (OneDrive) conforme necessário
 
 ## 4. Importar os guests do jsonl
 
