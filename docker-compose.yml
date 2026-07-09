@@ -28,14 +28,15 @@ services:
     volumes:
       - evolution_pgdata:/var/lib/postgresql/data
 
+  # Backend Node legado — mantido só para rollback:
+  #   docker compose --profile legacy up -d backend  (e devolver o mapeamento "80:3000")
   backend:
+    profiles: ["legacy"]
     build:
       context: .
       dockerfile: backend/Dockerfile
     container_name: hotspot-backend
     restart: unless-stopped
-    ports:
-      - "80:3000"
     env_file:
       - ./backend/.env
     environment:
@@ -92,7 +93,7 @@ services:
       retries: 10
       start_period: 20s
 
-  # ── Portal captivo em FastAPI (na 8090 até o cutover para a 80) ──
+  # ── Portal captivo em FastAPI (porta 80 — usada pelo redirect do UniFi) ──
   portal:
     build:
       context: .
@@ -101,7 +102,7 @@ services:
     restart: unless-stopped
     command: ["uvicorn", "portal:app", "--host", "0.0.0.0", "--port", "3000"]
     ports:
-      - "8090:3000"
+      - "80:3000"
     env_file:
       - .env
     environment:
