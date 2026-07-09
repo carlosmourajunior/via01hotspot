@@ -15,6 +15,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 UNIFI_URL = environ.get("UNIFI_URL", "")
 UNIFI_API_KEY = environ.get("UNIFI_API_KEY", "")
 UNIFI_SITE = environ.get("UNIFI_SITE", "default")
+# Tempo de acesso liberado por login (minutos); expirou → portal aparece de novo
+GUEST_ACCESS_MINUTES = int(environ.get("GUEST_ACCESS_MINUTES", 480))
 
 _BASE = f"{UNIFI_URL}/proxy/network/integrations/v1"
 
@@ -63,7 +65,9 @@ def find_client_id_by_mac(site_id: str, mac: str):
             return None
 
 
-def authorize(mac: str, minutes: int = 480):
+def authorize(mac: str, minutes: int = None):
+    if minutes is None:
+        minutes = GUEST_ACCESS_MINUTES
     site_id = get_site_id()
     client_id = find_client_id_by_mac(site_id, mac)
 

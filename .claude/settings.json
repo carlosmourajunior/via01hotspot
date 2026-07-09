@@ -15,7 +15,9 @@
       "Bash(git push *)",
       "Bash(curl -s http://localhost:8082/api/health)",
       "Bash(git checkout *)",
-      "Bash(git merge *)"
+      "Bash(git merge *)",
+      "Bash(git fetch *)",
+      "Bash(git pull *)"
     ]
   }
 }
