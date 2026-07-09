@@ -71,8 +71,9 @@ services:
       dockerfile: backend-py/Dockerfile
     container_name: admin-backend
     restart: unless-stopped
+    # 8082 no host: a 8080 é a porta de inform da controladora UniFi neste servidor
     ports:
-      - "8080:8000"
+      - "8082:8000"
     env_file:
       - .env
     environment:
