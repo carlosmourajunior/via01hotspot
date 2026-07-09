@@ -48,6 +48,48 @@ services:
     depends_on:
       - evolution-api
 
+  # ── Área administrativa unificada (FastAPI + Postgres) ──────────
+  db:
+    image: postgres:16-alpine
+    container_name: controle-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: controle
+      POSTGRES_USER: controle
+      POSTGRES_PASSWORD: controle
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U controle"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  admin:
+    build:
+      context: .
+      dockerfile: backend-py/Dockerfile
+    container_name: admin-backend
+    restart: unless-stopped
+    ports:
+      - "8080:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://controle:controle@db:5432/controle
+    volumes:
+      - ./backend-py/uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
 volumes:
   evolution_instances:
   evolution_pgdata:
+  pgdata:
