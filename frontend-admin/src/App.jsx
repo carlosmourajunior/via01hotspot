@@ -3,6 +3,7 @@ import axios from 'axios'
 import Login from './pages/Login'
 import VendasIXC from './pages/VendasIXC'
 import OsAnalise from './pages/OsAnalise'
+import Guests from './pages/Guests'
 import Admin from './pages/Admin'
 
 // Injeta token em todas as requisições
@@ -25,9 +26,10 @@ axios.interceptors.response.use(
 )
 
 const MENU = [
-  { id: 'dashboard', label: 'Dashboard',  icon: '📊' },
-  { id: 'os',        label: 'OS IXC',     icon: '🔧' },
-  { id: 'admin',     label: 'Admin',      icon: '⚙️'  },
+  { id: 'dashboard', label: 'Dashboard',    icon: '📊' },
+  { id: 'os',        label: 'OS IXC',       icon: '🔧' },
+  { id: 'guests',    label: 'Wi-Fi Guests', icon: '📶' },
+  { id: 'admin',     label: 'Admin',        icon: '⚙️'  },
 ]
 
 export default function App() {
@@ -104,6 +106,7 @@ export default function App() {
       <main className="main-content">
         {pagina === 'dashboard' && <VendasIXC />}
         {pagina === 'os'        && <OsAnalise />}
+        {pagina === 'guests'    && <Guests />}
         {pagina === 'admin'     && <Admin user={user} />}
       </main>
     </div>

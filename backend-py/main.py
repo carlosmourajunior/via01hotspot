@@ -23,6 +23,9 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from dotenv import load_dotenv
 
+import db as hotspot_db
+from guests_admin import router as guests_router
+
 load_dotenv()
 
 # ── Auth ────────────────────────────────────────────────────────────────────
@@ -604,6 +607,7 @@ def _criar_admin_padrao():
 def startup():
     if DATABASE_URL:
         init_db()
+        hotspot_db.init_hotspot_tables()
         _criar_admin_padrao()
 
 
@@ -2995,6 +2999,10 @@ def resumo(origem: str = "ouro_fino"):
         "total": total,
         "ultima_sincronizacao": ultima_sync.isoformat() if ultima_sync else None,
     }
+
+
+# ── Acessos do hotspot (Wi-Fi guests) ────────────────────────────────────────
+app.include_router(guests_router)
 
 
 # ── Frontend estático (build do frontend-admin) ─────────────────────────────

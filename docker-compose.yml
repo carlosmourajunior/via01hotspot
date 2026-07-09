@@ -79,6 +79,8 @@ services:
       DATABASE_URL: postgresql://controle:controle@db:5432/controle
     volumes:
       - ./backend-py/uploads:/app/uploads
+      # jsonl do backend Node, para o script de importação de guests
+      - ./backend/data:/hotspot-data:ro
     depends_on:
       db:
         condition: service_healthy
