@@ -347,20 +347,35 @@ def _ixc_fetch_logins(data_inicio: str) -> list:
     return todos
 
 
-def _ixc_fetch_contratos(data_inicio: str) -> list:
-    """Busca contratos do IXC (cliente_contrato) com data_ativacao >= data_inicio."""
+def _ixc_fetch_contratos(data_inicio: str = None) -> list:
+    """Busca contratos do IXC (cliente_contrato).
+
+    Com data_inicio: só contratos com data_ativacao >= data_inicio (incremental).
+    Sem data_inicio: a base COMPLETA (necessária para detectar ex-clientes antigos).
+    """
     todos: list = []
     page = 1
     while True:
-        payload = {
-            "qtype":     "data_ativacao",
-            "query":     data_inicio,
-            "oper":      ">=",
-            "page":      page,
-            "rp":        200,
-            "sortname":  "data_ativacao",
-            "sortorder": "asc",
-        }
+        if data_inicio:
+            payload = {
+                "qtype":     "data_ativacao",
+                "query":     data_inicio,
+                "oper":      ">=",
+                "page":      page,
+                "rp":        200,
+                "sortname":  "data_ativacao",
+                "sortorder": "asc",
+            }
+        else:
+            payload = {
+                "qtype":     "id",
+                "query":     "1",
+                "oper":      ">=",
+                "page":      page,
+                "rp":        200,
+                "sortname":  "id",
+                "sortorder": "asc",
+            }
         try:
             resp = requests.post(
                 f"{IXC_BASE}/cliente_contrato",
@@ -2513,13 +2528,18 @@ def ixc_analise_os(ano: int = None, cidade: str = None):
 
 
 @app.post("/api/ixc/sync-contratos")
-def ixc_sync_contratos(meses: int = 14):
-    """Sincroniza cliente_contrato do IXC usando data_ativacao. Requer sync-clientes executado."""
+def ixc_sync_contratos(meses: int = 0):
+    """Sincroniza cliente_contrato do IXC. Requer sync-clientes executado.
+
+    Por padrão (meses=0) traz a base COMPLETA de contratos — necessário para
+    classificar ex-clientes antigos pelo telefone. Passe meses=N para uma
+    janela incremental por data_ativacao.
+    """
     if not IXC_TOKEN:
         raise HTTPException(status_code=503, detail="IXC_TOKEN não configurado.")
 
     from datetime import timedelta
-    data_inicio = (datetime.now() - timedelta(days=30 * meses)).strftime("%Y-%m-%d")
+    data_inicio = (datetime.now() - timedelta(days=30 * meses)).strftime("%Y-%m-%d") if meses else None
 
     contratos = _ixc_fetch_contratos(data_inicio)
 
