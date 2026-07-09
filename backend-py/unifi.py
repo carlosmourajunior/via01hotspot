@@ -16,7 +16,7 @@ UNIFI_URL = environ.get("UNIFI_URL", "")
 UNIFI_API_KEY = environ.get("UNIFI_API_KEY", "")
 UNIFI_SITE = environ.get("UNIFI_SITE", "default")
 # Tempo de acesso liberado por login (minutos); expirou → portal aparece de novo
-GUEST_ACCESS_MINUTES = int(environ.get("GUEST_ACCESS_MINUTES", 480))
+GUEST_ACCESS_MINUTES = int(environ.get("GUEST_ACCESS_MINUTES", 60))
 
 _BASE = f"{UNIFI_URL}/proxy/network/integrations/v1"
 
