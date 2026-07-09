@@ -19,26 +19,20 @@ antigo continua sendo usado só pelo serviço Node legado.
 ```bash
 docker compose build admin portal
 docker compose up -d db admin portal
-curl http://localhost:8080/api/health   # admin ok
+curl http://localhost:8082/api/health   # admin ok
 curl http://localhost:8090/health       # portal FastAPI ok (em paralelo)
 curl http://localhost/health            # Node continua atendendo na 80
 ```
 
-## 3. Migrar os dados do controleinterno antigo
+## 3. Popular os dados (sem dump)
 
-No dia da migração, **parar de usar a stack antiga** (evita divergência):
+O controleinterno antigo estava em fase de testes — não há dados a migrar.
+O banco novo começa vazio; o usuário bootstrap `admin/admin123` é criado
+automaticamente no primeiro start (trocar a senha depois).
 
-```bash
-# na máquina/pasta da stack antiga do controleinterno:
-docker exec <container-db-antigo> pg_dump -U controle -Fc controle > controle.dump
-
-# no servidor do hotspot:
-docker exec -i controle-db pg_restore -U controle -d controle --clean --if-exists < controle.dump
-docker compose restart admin
-```
-
-Validar: login em `http://<servidor>:8080` com usuário real; Dashboard e OS IXC
-com dados históricos. Manter a stack antiga desligada mas intacta (rollback).
+Popular pela própria interface em `http://<servidor>:8082`:
+- Tela **Admin** → botões de sincronização IXC (clientes, OS, contratos, logins)
+- Sincronizações de planilhas (OneDrive) conforme necessário
 
 ## 4. Importar os guests do jsonl
 
@@ -56,7 +50,7 @@ Com um celular conectado à rede de convidados:
 1. Abrir `http://<servidor>:8090/?id=<MAC-do-celular>` no próprio celular.
 2. Informar o WhatsApp → receber o código → digitar.
 3. Confirmar: acesso liberado no controller UniFi, registro aparece na tela
-   Wi-Fi Guests do admin (`:8080`).
+   Wi-Fi Guests do admin (`:8082`).
 4. Testes negativos: código errado, código expirado (aguardar 5 min), telefone
    com menos de 10 dígitos.
 
@@ -90,6 +84,6 @@ Fazer o fluxo OTP completo com celular real logo em seguida.
 | Porta | Serviço |
 |---|---|
 | 80 | Portal captivo (clientes UniFi) |
-| 8080 | Área administrativa (rede interna) |
+| 8082 | Área administrativa (rede interna) |
 | 8081 | Evolution API |
 | 8090 | Portal em teste (some após o cutover) |

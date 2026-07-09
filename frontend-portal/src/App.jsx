@@ -352,9 +352,9 @@ function PortalApp() {
 }
 
 export default function App() {
-  // A área administrativa agora vive em um serviço próprio (porta 8080)
+  // A área administrativa agora vive em um serviço próprio (porta 8082)
   if (window.location.pathname.startsWith('/admin')) {
-    window.location.replace(`http://${window.location.hostname}:8080/`);
+    window.location.replace(`http://${window.location.hostname}:8082/`);
     return null;
   }
   return <PortalApp />;
