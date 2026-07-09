@@ -46,22 +46,23 @@ def normalizar_fone(raw: str) -> str:
     return digits
 
 
-def classificar_telefone(conn, phone: str) -> str:
+def classificar_telefone(conn, phone: str) -> tuple:
     """Classifica um telefone contra a base IXC sincronizada.
 
-    Retorna: 'cliente' (contrato ativo), 'ex_cliente' (já teve cadastro/contrato)
-    ou 'nunca_foi'. O match usa os últimos 8 dígitos (cobre números antigos
-    sem o nono dígito).
+    Retorna (status, nome_ixc): status é 'cliente' (contrato ativo),
+    'ex_cliente' (já teve cadastro/contrato) ou 'nunca_foi'; nome_ixc é o nome
+    do cadastro correspondente no IXC (None se não houver match). O match usa
+    os últimos 8 dígitos (cobre números antigos sem o nono dígito).
     """
     digits = normalizar_fone(phone)
     last8 = digits[-8:]
     if len(last8) < 8:
-        return "nunca_foi"
+        return "nunca_foi", None
 
     with conn.cursor() as cur:
         cur.execute(
             r"""
-            SELECT ixc_id, COALESCE(ativo, '')
+            SELECT ixc_id, COALESCE(ativo, ''), COALESCE(nome, '')
             FROM ixc_clientes
             WHERE COALESCE(fones, regexp_replace(COALESCE(fone, ''), '\D', '', 'g')) LIKE %s
             """,
@@ -69,17 +70,24 @@ def classificar_telefone(conn, phone: str) -> str:
         )
         clientes = cur.fetchall()
         if not clientes:
-            return "nunca_foi"
+            return "nunca_foi", None
 
         ids = [c[0] for c in clientes]
-        cur.execute("SELECT COALESCE(status, '') FROM ixc_contratos WHERE id_cliente = ANY(%s)", (ids,))
-        statuses = [s[0].upper() for s in cur.fetchall()]
+        cur.execute(
+            "SELECT id_cliente, COALESCE(status, '') FROM ixc_contratos WHERE id_cliente = ANY(%s)",
+            (ids,),
+        )
+        contratos = cur.fetchall()
 
-    if any(s == "A" for s in statuses):
-        return "cliente"
-    if statuses:
-        return "ex_cliente"
+    ativos = {c_id for c_id, status in contratos if status.upper() == "A"}
+    # Nome do cadastro: prioriza o cliente com contrato ativo
+    nome = next((c[2] for c in clientes if c[0] in ativos), clientes[0][2]) or None
+
+    if ativos:
+        return "cliente", nome
+    if contratos:
+        return "ex_cliente", nome
     # Cadastro existe mas nenhum contrato sincronizado: usa a flag do cadastro
     if any(c[1].upper() == "S" for c in clientes):
-        return "cliente"
-    return "ex_cliente"
+        return "cliente", nome
+    return "ex_cliente", nome

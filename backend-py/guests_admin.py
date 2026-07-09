@@ -39,11 +39,19 @@ def reclassificar_guests():
             cur.execute("SELECT id, phone FROM hotspot_guests")
             registros = cur.fetchall()
         for reg_id, phone in registros:
-            status = db.classificar_telefone(conn, phone)
+            status, nome_ixc = db.classificar_telefone(conn, phone)
             with conn.cursor() as cur:
+                # O nome digitado pelo visitante tem prioridade; o do cadastro
+                # IXC preenche os registros sem nome (histórico antigo)
                 cur.execute(
-                    "UPDATE hotspot_guests SET client_status = %s, is_client = %s WHERE id = %s",
-                    (status, status == "cliente", reg_id),
+                    """
+                    UPDATE hotspot_guests
+                    SET client_status = %s,
+                        is_client     = %s,
+                        name          = COALESCE(NULLIF(name, ''), %s)
+                    WHERE id = %s
+                    """,
+                    (status, status == "cliente", nome_ixc, reg_id),
                 )
             atualizados += 1
         conn.commit()

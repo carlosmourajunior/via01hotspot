@@ -120,11 +120,11 @@ async def verify_otp(request: Request):
         try:
             # Classifica pelo telefone contra a base IXC sincronizada
             try:
-                status = db.classificar_telefone(conn, clean_phone)
+                status, nome_ixc = db.classificar_telefone(conn, clean_phone)
             except Exception as e:
                 print(f"[DB] Erro ao classificar telefone: {e}")
                 conn.rollback()  # destrava a transação para o INSERT abaixo
-                status = None
+                status, nome_ixc = None, None
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -138,7 +138,7 @@ async def verify_otp(request: Request):
                         entry.get("ap"),
                         status == "cliente",
                         datetime.now(timezone.utc),
-                        entry.get("name"),
+                        entry.get("name") or nome_ixc,
                         status,
                     ),
                 )
