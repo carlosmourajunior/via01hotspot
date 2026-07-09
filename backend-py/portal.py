@@ -138,7 +138,8 @@ async def verify_otp(request: Request):
                         entry.get("ap"),
                         status == "cliente",
                         datetime.now(timezone.utc),
-                        entry.get("name") or nome_ixc,
+                        # Nome do cadastro IXC é mais confiável; o digitado fica p/ quem não está na base
+                        nome_ixc or entry.get("name"),
                         status,
                     ),
                 )

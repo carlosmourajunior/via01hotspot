@@ -45,14 +45,14 @@ def reclassificar_guests():
         for reg_id, phone in registros:
             status, nome_ixc = db.classificar_telefone(conn, phone)
             with conn.cursor() as cur:
-                # O nome digitado pelo visitante tem prioridade; o do cadastro
-                # IXC preenche os registros sem nome (histórico antigo)
+                # O nome do cadastro IXC prevalece (mais confiável); o digitado
+                # pelo visitante fica para quem não está na base
                 cur.execute(
                     """
                     UPDATE hotspot_guests
                     SET client_status = %s,
                         is_client     = %s,
-                        name          = COALESCE(NULLIF(name, ''), %s)
+                        name          = COALESCE(NULLIF(%s, ''), name)
                     WHERE id = %s
                     """,
                     (status, status == "cliente", nome_ixc, reg_id),
