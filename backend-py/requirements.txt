@@ -1,5 +1,8 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
+# numpy fixado em 1.26.x: as wheels do numpy 2.x exigem CPU x86-64-v2,
+# que o servidor do hotspot não suporta
+numpy==1.26.4
 pandas==2.2.3
 openpyxl==3.1.5
 requests==2.32.3
