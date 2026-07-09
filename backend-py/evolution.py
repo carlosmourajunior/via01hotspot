@@ -23,4 +23,6 @@ def send_whatsapp_otp(phone: str, otp: str):
         headers={"apikey": EVOLUTION_API_KEY, "Content-Type": "application/json"},
         timeout=15,
     )
-    resp.raise_for_status()
+    if not resp.ok:
+        # A Evolution detalha o motivo no corpo da resposta
+        raise RuntimeError(f"Evolution {resp.status_code}: {resp.text}")
