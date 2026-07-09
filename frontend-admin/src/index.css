@@ -1,9 +1,25 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* ── Identidade Via01 ──
+   Roxo concentrado na sidebar/login e em pequenos acentos;
+   conteúdo claro e neutro para não pesar o visual. */
+:root {
+  --roxo:         #3D1278;
+  --roxo-escuro:  #2c0d5a;
+  --roxo-claro:   #C084FC;
+  --roxo-suave:   #f6f2fc;  /* fundos sutis com tom da marca */
+  --amarelo:      #FACC15;
+  --amarelo-esc:  #eab308;
+  --fundo:        #f6f4fa;
+  --texto:        #241b35;
+  --texto-suave:  #6b5f80;
+  --borda:        #e5dff0;
+}
+
 body {
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  background: #f0f2f5;
-  color: #1a1a2e;
+  background: var(--fundo);
+  color: var(--texto);
   height: 100vh;
   overflow: hidden;
 }
@@ -18,11 +34,11 @@ body {
 .sidebar {
   width: 220px;
   min-width: 220px;
-  background: #1a1a2e;
+  background: var(--roxo);
   display: flex;
   flex-direction: column;
   padding: 0;
-  box-shadow: 2px 0 8px rgba(0,0,0,0.15);
+  box-shadow: 2px 0 8px rgba(44, 13, 90, 0.25);
 }
 
 .sidebar-logo {
@@ -30,11 +46,12 @@ body {
   align-items: center;
   gap: 0.6rem;
   padding: 1.4rem 1.2rem;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
+  border-bottom: 1px solid rgba(255,255,255,0.1);
 }
 
 .logo-icon { font-size: 1.4rem; }
 .logo-text  { font-size: 0.95rem; font-weight: 700; color: #fff; letter-spacing: 0.02em; }
+.logo-img   { height: 26px; }
 
 .sidebar-nav {
   display: flex;
@@ -51,7 +68,7 @@ body {
   background: transparent;
   border: none;
   border-radius: 8px;
-  color: rgba(255,255,255,0.6);
+  color: rgba(255,255,255,0.65);
   cursor: pointer;
   font-size: 0.9rem;
   font-family: inherit;
@@ -60,8 +77,8 @@ body {
   width: 100%;
 }
 
-.nav-item:hover { background: rgba(255,255,255,0.08); color: #fff; }
-.nav-item.active { background: #4a90d9; color: #fff; font-weight: 600; }
+.nav-item:hover { background: rgba(255,255,255,0.1); color: #fff; }
+.nav-item.active { background: var(--amarelo); color: var(--roxo); font-weight: 700; }
 
 .nav-icon  { font-size: 1.1rem; }
 .nav-label { font-size: 0.88rem; }
@@ -70,7 +87,7 @@ body {
 .main-content {
   flex: 1;
   overflow-y: auto;
-  background: #f0f2f5;
+  background: var(--fundo);
 }
 
 /* ── Page ── */
@@ -89,7 +106,7 @@ body {
 .page-header h1 {
   font-size: 1.4rem;
   font-weight: 700;
-  color: #1a1a2e;
+  color: var(--roxo);
 }
 
 .page-actions {
@@ -110,20 +127,21 @@ body {
   background: #fff;
   border-radius: 12px;
   padding: 1.2rem 1.4rem;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+  box-shadow: 0 1px 4px rgba(44, 13, 90, 0.08);
+  border: 1px solid var(--borda);
   text-align: center;
 }
 
 .kpi-value {
   font-size: 2rem;
   font-weight: 700;
-  color: #1a1a2e;
+  color: var(--roxo);
   line-height: 1;
 }
 
 .kpi-label {
   font-size: 0.78rem;
-  color: #888;
+  color: var(--texto-suave);
   margin-top: 0.4rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -144,7 +162,7 @@ body {
 .chart-card h2 {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #444;
+  color: #4a3670;
   margin-bottom: 1rem;
 }
 
@@ -154,7 +172,8 @@ body {
   border-radius: 12px;
   padding: 1.4rem;
   margin-bottom: 1.5rem;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+  box-shadow: 0 1px 4px rgba(44, 13, 90, 0.08);
+  border: 1px solid var(--borda);
 }
 
 /* ── Table ── */
@@ -168,7 +187,7 @@ body {
 .table-header h2 {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #444;
+  color: #4a3670;
 }
 
 table {
@@ -180,24 +199,26 @@ table {
 th, td {
   text-align: left;
   padding: 0.55rem 0.75rem;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid #efeaf7;
 }
 
 th {
-  background: #f7f8fa;
+  background: var(--roxo-suave);
+  color: var(--roxo);
   font-weight: 600;
   position: sticky;
   top: 0;
   z-index: 1;
 }
 
-tr:hover td { background: #f5f8ff; }
+tr:hover td { background: #faf7ff; }
 
 .table-wrapper {
   max-height: 460px;
   overflow: auto;
   border-radius: 8px;
-  border: 1px solid #e8e8e8;
+  border: 1px solid var(--borda);
+  background: #fff;
 }
 
 .th-inner {
@@ -210,7 +231,7 @@ tr:hover td { background: #f5f8ff; }
   width: 100%;
   padding: 0.22rem 0.4rem;
   font-size: 0.72rem;
-  border: 1px solid #d0d0d0;
+  border: 1px solid #d5cbe6;
   border-radius: 4px;
   outline: none;
   background: #fff;
@@ -218,48 +239,48 @@ tr:hover td { background: #f5f8ff; }
 }
 
 .filtro-input:focus {
-  border-color: #4a90d9;
-  box-shadow: 0 0 0 2px rgba(74,144,217,0.15);
+  border-color: var(--roxo-claro);
+  box-shadow: 0 0 0 2px rgba(192, 132, 252, 0.2);
 }
 
 .sem-resultado {
   text-align: center;
   padding: 2rem;
-  color: #aaa;
+  color: #a99cc0;
 }
 
 /* ── Buttons ── */
 .btn-primary {
   padding: 0.45rem 1rem;
-  background: #e67e22;
-  color: #fff;
+  background: var(--amarelo);
+  color: var(--roxo);
   border: none;
   border-radius: 8px;
   cursor: pointer;
   font-size: 0.83rem;
   font-family: inherit;
-  font-weight: 600;
+  font-weight: 700;
 }
-.btn-primary:hover    { background: #ca6f1e; }
+.btn-primary:hover:not(:disabled) { background: var(--amarelo-esc); }
 .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .btn-secondary {
   padding: 0.45rem 1rem;
   background: #fff;
-  color: #444;
-  border: 1px solid #ccc;
+  color: #4a3670;
+  border: 1px solid #d5cbe6;
   border-radius: 8px;
   cursor: pointer;
   font-size: 0.83rem;
   font-family: inherit;
   font-weight: 500;
 }
-.btn-secondary:hover    { background: #f5f5f5; border-color: #999; }
+.btn-secondary:hover:not(:disabled) { background: var(--roxo-suave); border-color: var(--roxo-claro); }
 .btn-secondary:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .btn-sync {
   padding: 0.45rem 1rem;
-  background: #4a90d9;
+  background: var(--roxo);
   color: #fff;
   border: none;
   border-radius: 8px;
@@ -268,7 +289,7 @@ tr:hover td { background: #f5f8ff; }
   font-family: inherit;
   font-weight: 500;
 }
-.btn-sync:hover    { background: #357abd; }
+.btn-sync:hover:not(:disabled) { background: var(--roxo-escuro); }
 .btn-sync:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .btn-upload {
@@ -291,9 +312,9 @@ tr:hover td { background: #f5f8ff; }
   height: 1.6rem;
   padding: 0;
   font-size: 0.7rem;
-  border: 1px solid #e0e0e0;
+  border: 1px solid #e0d8ee;
   background: #fff;
-  color: #bbb;
+  color: #b8abd0;
   border-radius: 4px;
   cursor: pointer;
   line-height: 1;
@@ -345,15 +366,15 @@ tr:hover td { background: #f5f8ff; }
   font-size: 0.85rem;
   font-family: inherit;
   font-weight: 500;
-  border: 1px solid #d0d0d0;
+  border: 1px solid #d5cbe6;
   border-radius: 8px;
   background: #fff;
-  color: #555;
+  color: #4a3670;
   cursor: pointer;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
-.cidade-tab:hover  { background: #f0f2f5; border-color: #aaa; }
-.cidade-tab.active { background: #1a1a2e; color: #fff; border-color: #1a1a2e; }
+.cidade-tab:hover  { background: var(--roxo-suave); border-color: var(--roxo-claro); }
+.cidade-tab.active { background: var(--roxo); color: #fff; border-color: var(--roxo); }
 
 /* ── Seletor de mês ── */
 .mes-selector-card {
@@ -367,7 +388,7 @@ tr:hover td { background: #f5f8ff; }
 .mes-selector-label {
   font-size: 0.85rem;
   font-weight: 600;
-  color: #555;
+  color: #4a3670;
   white-space: nowrap;
 }
 
@@ -375,14 +396,14 @@ tr:hover td { background: #f5f8ff; }
   padding: 0.38rem 0.7rem;
   font-size: 0.85rem;
   font-family: inherit;
-  border: 1px solid #d0d0d0;
+  border: 1px solid #d5cbe6;
   border-radius: 8px;
   background: #fff;
-  color: #1a1a2e;
+  color: var(--texto);
   cursor: pointer;
   outline: none;
 }
-.select-periodo:focus { border-color: #4a90d9; box-shadow: 0 0 0 2px rgba(74,144,217,0.15); }
+.select-periodo:focus { border-color: var(--roxo-claro); box-shadow: 0 0 0 2px rgba(192, 132, 252, 0.2); }
 .select-periodo--sm   { font-size: 0.78rem; padding: 0.28rem 0.55rem; }
 
 /* ── Chart card header com seletor inline ── */
@@ -404,16 +425,16 @@ tr:hover td { background: #f5f8ff; }
   gap: 1rem;
   margin-bottom: 0.8rem;
 }
-.admin-arquivo-nome { font-weight: 600; font-size: 0.9rem; color: #1a1a2e; }
-.admin-arquivo-meta { font-size: 0.78rem; color: #888; }
+.admin-arquivo-nome { font-weight: 600; font-size: 0.9rem; color: var(--texto); }
+.admin-arquivo-meta { font-size: 0.78rem; color: var(--texto-suave); }
 
 .admin-section-title {
   font-size: 1rem;
   font-weight: 700;
-  color: #1a1a2e;
+  color: var(--roxo);
   margin-bottom: 1.2rem;
   padding-bottom: 0.6rem;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--borda);
 }
 
 .admin-counts {
@@ -424,14 +445,14 @@ tr:hover td { background: #f5f8ff; }
 }
 
 .admin-count-badge {
-  background: #f0f2f5;
+  background: var(--roxo-suave);
   border-radius: 10px;
   padding: 0.6rem 1rem;
   text-align: center;
   min-width: 90px;
 }
-.admin-count-num   { display: block; font-size: 1.4rem; font-weight: 700; color: #1a1a2e; }
-.admin-count-label { display: block; font-size: 0.72rem; color: #888; margin-top: 0.2rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.admin-count-num   { display: block; font-size: 1.4rem; font-weight: 700; color: var(--roxo); }
+.admin-count-label { display: block; font-size: 0.72rem; color: var(--texto-suave); margin-top: 0.2rem; text-transform: uppercase; letter-spacing: 0.04em; }
 
 .admin-group {
   margin-bottom: 1rem;
@@ -442,7 +463,7 @@ tr:hover td { background: #f5f8ff; }
 
 .admin-group-label {
   font-size: 0.82rem;
-  color: #666;
+  color: var(--texto-suave);
   font-weight: 500;
 }
 
@@ -467,8 +488,8 @@ tr:hover td { background: #f5f8ff; }
 .admin-btn--warning:hover:not(:disabled) { background: #d68910; }
 .admin-btn--danger  { background: #e74c3c; color: #fff; }
 .admin-btn--danger:hover:not(:disabled)  { background: #c0392b; }
-.admin-btn--info    { background: #3498db; color: #fff; }
-.admin-btn--info:hover:not(:disabled)    { background: #2980b9; }
+.admin-btn--info    { background: var(--roxo); color: #fff; }
+.admin-btn--info:hover:not(:disabled)    { background: var(--roxo-escuro); }
 
 /* ── Comparacao ── */
 .comp-tables {
@@ -484,7 +505,7 @@ tr:hover td { background: #f5f8ff; }
 
 .comp-loading-tag {
   font-size: 0.8rem;
-  color: #aaa;
+  color: #a99cc0;
   font-style: italic;
 }
 
@@ -494,13 +515,13 @@ tr:hover td { background: #f5f8ff; }
   justify-content: space-between;
   margin-bottom: 1rem;
   padding-top: 0.5rem;
-  border-top: 2px solid #eee;
+  border-top: 2px solid var(--borda);
 }
 
 .diverg-header h2 {
   font-size: 1rem;
   font-weight: 700;
-  color: #1a1a2e;
+  color: var(--roxo);
 }
 
 .diverg-header-right {
@@ -511,18 +532,18 @@ tr:hover td { background: #f5f8ff; }
 
 .diverg-resumo {
   font-size: 0.85rem;
-  color: #555;
-  background: #f7f8fa;
+  color: #4a3670;
+  background: var(--roxo-suave);
   padding: 0.3rem 0.8rem;
   border-radius: 20px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--borda);
 }
 
 /* ── Em breve ── */
 .em-breve {
   text-align: center;
   padding: 4rem 2rem;
-  color: #aaa;
+  color: #a99cc0;
 }
 .em-breve span { font-size: 3rem; display: block; margin-bottom: 1rem; }
 .em-breve p    { font-size: 1.1rem; }
@@ -533,6 +554,6 @@ tr:hover td { background: #f5f8ff; }
   align-items: center;
   justify-content: center;
   height: 60vh;
-  color: #888;
+  color: var(--texto-suave);
   font-size: 1rem;
 }

@@ -61,8 +61,7 @@ export default function App() {
     <div className="layout">
       <aside className="sidebar">
         <div className="sidebar-logo">
-          <span className="logo-icon">📡</span>
-          <span className="logo-text">Via01</span>
+          <img src="/logo-via01.png" alt="Via01" className="logo-img" />
         </div>
 
         <nav className="sidebar-nav">

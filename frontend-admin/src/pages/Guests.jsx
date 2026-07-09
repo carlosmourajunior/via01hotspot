@@ -218,7 +218,7 @@ export default function Guests() {
             onClick={() => setFiltro(k.id)}
             style={{
               cursor: 'pointer',
-              outline: filtro === k.id ? '2px solid #6c5ce7' : 'none',
+              outline: filtro === k.id ? '2px solid #3D1278' : 'none',
             }}
           >
             <div className="kpi-label">{k.label}</div>
