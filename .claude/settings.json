@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s http://localhost:8080/api/health)",
+      "Bash(curl -s -o /dev/null -w \"GET / → %{http_code} \\(%{content_type}\\)\\\\n\" http://localhost:8080/)",
+      "Bash(python -m json.tool)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8080/api/guests)",
+      "Bash(git mv *)",
+      "Bash(curl -s http://localhost:8090/health)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{content_type}\\\\n\" http://localhost:8090/)",
+      "Bash(curl -s -X POST http://localhost:8090/api/send-otp -H \"Content-Type: application/json\" -d '{\"mac\":\"aa:bb:cc:dd:ee:ff\"}' -w \" [%{http_code}]\")",
+      "Bash(curl -s -X POST http://localhost:8090/api/send-otp -H \"Content-Type: application/json\" -d '{\"phone\":\"123\",\"mac\":\"aa:bb:cc:dd:ee:ff\"}' -w \" [%{http_code}]\")",
+      "Bash(curl -s -X POST http://localhost:8090/api/verify-otp -H \"Content-Type: application/json\" -d '{\"phone\":\"5535999990009\",\"otp\":\"123456\"}' -w \" [%{http_code}]\")",
+      "Bash(curl -s -X POST http://localhost:8090/api/send-otp -H \"Content-Type: application/json\" -d '{\"phone\":\"35999990001\",\"mac\":\"aa:bb:cc:dd:ee:ff\",\"isClient\":true}' -w \" [%{http_code}]\")"
+    ]
+  }
+}
