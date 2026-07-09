@@ -351,15 +351,17 @@ function PortalApp() {
   );
 }
 
-function StatCard({ label, value, active }) {
+/* ── Shared admin background ── */
+const adminBg = { background: '#3D1278' };
+const card = { background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '20px' };
+const fieldWrap = { display: 'flex', alignItems: 'center', border: '1px solid rgba(255,255,255,0.18)', borderRadius: '12px', overflow: 'hidden', background: 'rgba(255,255,255,0.08)', marginBottom: '14px' };
+const btnYellow = { background: '#FACC15', color: '#3D1278', width: '100%', padding: '12px', fontSize: '14px', fontWeight: 700, borderRadius: '12px', border: 'none', cursor: 'pointer' };
+
+function AdminTagline({ sub }) {
   return (
-    <div
-      className={`w-full bg-white rounded-xl shadow p-4 border transition-colors ${
-        active ? 'border-black ring-1 ring-black' : 'border-gray-100 hover:border-gray-300'
-      }`}
-    >
-      <p className="text-gray-400 text-xs uppercase tracking-wide">{label}</p>
-      <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
+    <div className="text-center mt-5 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+      <p className="text-sm font-bold" style={{ color: '#FACC15' }}>#conecteseconosco</p>
+      <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.22)' }}>{sub}</p>
     </div>
   );
 }
@@ -391,122 +393,178 @@ function AdminLogin({ onLoggedIn }) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-8 border border-gray-100">
-        <div className="text-center mb-8">
-          <Logo className="h-14 mx-auto mb-4" />
-          <h1 className="text-xl font-bold text-gray-900">Painel Administrativo</h1>
-          <p className="text-gray-500 text-sm mt-1">Entre para ver os acessos ao hotspot</p>
+    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden" style={adminBg}>
+      {/* Decoração */}
+      <div className="pointer-events-none select-none absolute inset-0 overflow-hidden">
+        <span style={{ position:'absolute', top:'-30px', right:'-20px', fontSize:'180px', fontWeight:900, color:'rgba(192,132,252,0.07)', lineHeight:1 }}>+</span>
+        <span style={{ position:'absolute', bottom:'-40px', left:'-10px', fontSize:'130px', fontWeight:900, color:'rgba(192,132,252,0.06)', lineHeight:1 }}>+</span>
+        <div style={{ position:'absolute', top:'-80px', right:'-80px', width:'300px', height:'300px', borderRadius:'50%', background:'rgba(255,255,255,0.03)' }} />
+      </div>
+
+      <div className="relative w-full max-w-sm p-7" style={card}>
+        {/* Logo */}
+        <div className="flex justify-center mb-6">
+          <Logo className="h-10" />
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Usuário</label>
+        <h1 className="text-center text-lg font-bold text-white mb-1">Painel Administrativo</h1>
+        <p className="text-center text-sm mb-6" style={{ color: 'rgba(255,255,255,0.5)' }}>
+          Entre para ver os acessos ao hotspot
+        </p>
+
+        <form onSubmit={handleSubmit} className="space-y-1">
+          <p className="text-xs font-semibold uppercase tracking-widest mb-1.5" style={{ color: 'rgba(255,255,255,0.45)' }}>Usuário</p>
+          <div style={{ ...fieldWrap, marginBottom: '14px' }}
+            onFocus={(e) => e.currentTarget.style.boxShadow = '0 0 0 3px rgba(250,204,21,0.2)'}
+            onBlur={(e) => e.currentTarget.style.boxShadow = 'none'}
+          >
+            <span className="flex items-center px-3" style={{ color: 'rgba(255,255,255,0.3)', borderRight: '1px solid rgba(255,255,255,0.1)', paddingTop: '11px', paddingBottom: '11px' }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>
+            </span>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full px-3 py-3 border border-gray-300 rounded-xl text-sm text-gray-800 outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+              className="flex-1 px-3 py-3 text-sm text-white bg-transparent outline-none"
+              style={{ caretColor: '#FACC15' }}
               autoComplete="username"
               autoFocus
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Senha</label>
+
+          <p className="text-xs font-semibold uppercase tracking-widest mb-1.5" style={{ color: 'rgba(255,255,255,0.45)' }}>Senha</p>
+          <div style={{ ...fieldWrap, marginBottom: '18px' }}
+            onFocus={(e) => e.currentTarget.style.boxShadow = '0 0 0 3px rgba(250,204,21,0.2)'}
+            onBlur={(e) => e.currentTarget.style.boxShadow = 'none'}
+          >
+            <span className="flex items-center px-3" style={{ color: 'rgba(255,255,255,0.3)', borderRight: '1px solid rgba(255,255,255,0.1)', paddingTop: '11px', paddingBottom: '11px' }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>
+            </span>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-3 border border-gray-300 rounded-xl text-sm text-gray-800 outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+              className="flex-1 px-3 py-3 text-sm text-white bg-transparent outline-none"
+              style={{ caretColor: '#FACC15' }}
               autoComplete="current-password"
             />
           </div>
 
-          {error && <p className="text-red-500 text-sm text-center">{error}</p>}
+          {error && (
+            <p className="text-xs text-center rounded-xl py-2 px-3 mb-3" style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#FCA5A5' }}>
+              {error}
+            </p>
+          )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-black hover:bg-gray-800 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors"
-          >
-            {loading ? 'Entrando...' : 'Entrar'}
+          <button type="submit" disabled={loading} style={{ ...btnYellow, opacity: loading ? 0.5 : 1 }}>
+            {loading ? 'Entrando…' : 'Entrar'}
           </button>
         </form>
+
+        <AdminTagline sub="Via01 Telecom — Área restrita" />
       </div>
     </div>
   );
 }
 
 function AdminDashboard({ guests, onLogout }) {
-  const [filter, setFilter] = useState('all'); // all | clients | leads
+  const [filter, setFilter] = useState('all');
 
   const clients = guests.filter((g) => g.isClient).length;
   const leads = guests.length - clients;
   const visibleGuests =
-    filter === 'clients' ? guests.filter((g) => g.isClient) : filter === 'leads' ? guests.filter((g) => !g.isClient) : guests;
+    filter === 'clients' ? guests.filter((g) => g.isClient)
+    : filter === 'leads' ? guests.filter((g) => !g.isClient)
+    : guests;
+
+  const stats = [
+    { key: 'all',     label: 'Total de acessos', value: guests.length, tag: 'Todos',    tagStyle: { background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)' } },
+    { key: 'clients', label: 'Clientes Via01',   value: clients,       tag: 'Clientes', tagStyle: { background: 'rgba(250,204,21,0.15)', color: '#FACC15' } },
+    { key: 'leads',   label: 'Possíveis leads',  value: leads,         tag: 'Leads',    tagStyle: { background: 'rgba(192,132,252,0.15)', color: '#C084FC' } },
+  ];
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
-      <div className="max-w-4xl mx-auto">
+    <div className="min-h-screen p-4 sm:p-6 relative overflow-hidden" style={adminBg}>
+      {/* Decoração */}
+      <div className="pointer-events-none select-none absolute inset-0 overflow-hidden">
+        <span style={{ position:'absolute', top:'-20px', right:'10px', fontSize:'200px', fontWeight:900, color:'rgba(192,132,252,0.05)', lineHeight:1 }}>+</span>
+      </div>
+
+      <div className="max-w-4xl mx-auto relative">
+        {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div className="flex items-center gap-3">
-            <Logo className="h-9" />
-            <h1 className="text-lg sm:text-xl font-bold text-gray-900">Painel do Hotspot</h1>
+            <Logo className="h-8" />
+            <span className="text-sm font-semibold" style={{ color: 'rgba(255,255,255,0.6)' }}>Painel do Hotspot</span>
           </div>
           <button
             onClick={onLogout}
-            className="text-sm text-gray-500 hover:text-gray-900 hover:underline"
+            className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg transition-colors"
+            style={{ color: 'rgba(255,255,255,0.45)', border: '1px solid rgba(255,255,255,0.12)', background: 'transparent' }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.8)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.45)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; }}
           >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" /></svg>
             Sair
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-          <button onClick={() => setFilter('all')} className="text-left">
-            <StatCard label="Total de acessos" value={guests.length} active={filter === 'all'} />
-          </button>
-          <button onClick={() => setFilter('clients')} className="text-left">
-            <StatCard label="Clientes Via01" value={clients} active={filter === 'clients'} />
-          </button>
-          <button onClick={() => setFilter('leads')} className="text-left">
-            <StatCard label="Possíveis leads" value={leads} active={filter === 'leads'} />
-          </button>
+        {/* Stat cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+          {stats.map(({ key, label, value, tag, tagStyle }) => (
+            <button
+              key={key}
+              onClick={() => setFilter(key)}
+              className="text-left p-4 rounded-2xl transition-all"
+              style={{
+                background: filter === key ? 'rgba(250,204,21,0.1)' : 'rgba(255,255,255,0.07)',
+                border: filter === key ? '1px solid rgba(250,204,21,0.5)' : '1px solid rgba(255,255,255,0.1)',
+              }}
+            >
+              <p className="text-xs mb-1.5" style={{ color: 'rgba(255,255,255,0.45)' }}>{label}</p>
+              <p className="text-3xl font-bold" style={{ color: filter === key ? '#FACC15' : '#fff' }}>{value}</p>
+              <span className="inline-block text-xs font-semibold px-2 py-0.5 rounded-full mt-2" style={tagStyle}>{tag}</span>
+            </button>
+          ))}
         </div>
 
-        <div className="bg-white rounded-xl shadow overflow-hidden overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-black text-white text-left">
-              <tr>
-                <th className="px-4 py-3">Telefone</th>
-                <th className="px-4 py-3">Tipo</th>
-                <th className="px-4 py-3">MAC</th>
-                <th className="px-4 py-3">Data/Hora</th>
+        {/* Tabela */}
+        <div className="rounded-2xl overflow-hidden overflow-x-auto" style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)' }}>
+          <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: 'rgba(250,204,21,0.12)', borderBottom: '1px solid rgba(250,204,21,0.15)' }}>
+                {['Telefone', 'Tipo', 'MAC', 'Data/Hora'].map((h) => (
+                  <th key={h} className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: '#FACC15' }}>{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {visibleGuests.map((g, i) => (
-                <tr key={i} className="border-t border-gray-100">
-                  <td className="px-4 py-3 whitespace-nowrap">{formatPhoneDisplay(g.phone)}</td>
+                <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  <td className="px-4 py-3 whitespace-nowrap" style={{ color: 'rgba(255,255,255,0.75)' }}>{formatPhoneDisplay(g.phone)}</td>
                   <td className="px-4 py-3">
                     {g.isClient ? (
-                      <span className="inline-block px-2 py-0.5 rounded-full bg-black text-white text-xs font-medium">
+                      <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background: 'rgba(250,204,21,0.15)', color: '#FACC15', border: '1px solid rgba(250,204,21,0.3)' }}>
                         Cliente Via01
                       </span>
                     ) : (
-                      <span className="inline-block px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 text-xs font-medium">
+                      <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background: 'rgba(192,132,252,0.12)', color: '#C084FC', border: '1px solid rgba(192,132,252,0.25)' }}>
                         Lead
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{g.mac}</td>
-                  <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
+                  <td className="px-4 py-3 whitespace-nowrap font-mono text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>{g.mac}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>
                     {new Date(g.connectedAt).toLocaleString('pt-BR')}
                   </td>
                 </tr>
               ))}
               {visibleGuests.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={4} className="px-4 py-10 text-center text-sm" style={{ color: 'rgba(255,255,255,0.3)' }}>
                     Nenhum acesso registrado ainda.
                   </td>
                 </tr>
@@ -514,6 +572,8 @@ function AdminDashboard({ guests, onLogout }) {
             </tbody>
           </table>
         </div>
+
+        <AdminTagline sub="Via01 Telecom — Painel Administrativo" />
       </div>
     </div>
   );
@@ -554,7 +614,11 @@ function AdminPage() {
   }
 
   if (authed === null) {
-    return <div className="min-h-screen flex items-center justify-center text-gray-400">Carregando...</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: '#3D1278' }}>
+        <p className="text-sm animate-pulse" style={{ color: 'rgba(255,255,255,0.4)' }}>Carregando…</p>
+      </div>
+    );
   }
 
   if (!authed) {
@@ -563,9 +627,9 @@ function AdminPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-4 text-red-600 p-4 text-center">
-        <p>{error}</p>
-        <button onClick={loadGuests} className="text-sm underline text-gray-500">
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-4 text-center" style={{ background: '#3D1278' }}>
+        <p className="text-sm" style={{ color: '#FCA5A5' }}>{error}</p>
+        <button onClick={loadGuests} className="text-xs underline" style={{ color: 'rgba(255,255,255,0.4)', background: 'none', border: 'none', cursor: 'pointer' }}>
           Tentar de novo
         </button>
       </div>
