@@ -451,6 +451,9 @@ def init_db():
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_ixc_clientes_cidade ON ixc_clientes (cidade_ixc_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_ixc_clientes_data ON ixc_clientes (data_cadastro)")
+        # Todos os telefones do cadastro, normalizados (só dígitos, separados por vírgula)
+        # — usados para classificar acessos do hotspot por telefone
+        cur.execute("ALTER TABLE ixc_clientes ADD COLUMN IF NOT EXISTS fones TEXT")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS ixc_os (
                 id              SERIAL PRIMARY KEY,
@@ -1816,12 +1819,18 @@ def ixc_sync_clientes():
                 else:
                     nome = razao or fantasia
                 fone = c.get("telefone_celular") or c.get("fone") or ""
+                # Todos os telefones do cadastro, normalizados, p/ classificação por telefone
+                fones = ",".join(sorted({
+                    hotspot_db.normalizar_fone(c.get(campo))
+                    for campo in ("telefone_celular", "fone", "whatsapp", "telefone_comercial")
+                    if hotspot_db.normalizar_fone(c.get(campo))
+                }))
                 dc_raw = (c.get("data_cadastro") or "")[:10]
                 dc = dc_raw if dc_raw and dc_raw != "0000-00-00" else None
                 cur.execute("""
                     INSERT INTO ixc_clientes
-                        (ixc_id, nome, data_cadastro, cidade_ixc_id, bairro, cep, fone, ativo, status_prospeccao, synced_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                        (ixc_id, nome, data_cadastro, cidade_ixc_id, bairro, cep, fone, fones, ativo, status_prospeccao, synced_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                     ON CONFLICT (ixc_id) DO UPDATE SET
                         nome              = EXCLUDED.nome,
                         data_cadastro     = EXCLUDED.data_cadastro,
@@ -1829,6 +1838,7 @@ def ixc_sync_clientes():
                         bairro            = EXCLUDED.bairro,
                         cep               = EXCLUDED.cep,
                         fone              = EXCLUDED.fone,
+                        fones             = EXCLUDED.fones,
                         ativo             = EXCLUDED.ativo,
                         status_prospeccao = EXCLUDED.status_prospeccao,
                         synced_at         = NOW()
@@ -1840,6 +1850,7 @@ def ixc_sync_clientes():
                     c.get("bairro", ""),
                     c.get("cep", ""),
                     fone,
+                    fones,
                     c.get("ativo", ""),
                     c.get("status_prospeccao", ""),
                 ))

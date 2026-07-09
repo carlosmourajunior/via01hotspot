@@ -36,7 +36,7 @@ function PortalApp() {
   const { mac, ap, redirectUrl } = getParams();
   const [step, setStep] = useState(STEPS.PHONE);
   const [phone, setPhone] = useState('');
-  const [isClient, setIsClient] = useState(false);
+  const [name, setName] = useState('');
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -53,13 +53,14 @@ function PortalApp() {
     e?.preventDefault();
     setError('');
     const clean = phone.replace(/\D/g, '');
+    if (name.trim().length < 3) { setError('Digite seu nome.'); return; }
     if (clean.length < 10) { setError('Digite um número válido com DDD.'); return; }
     setLoading(true);
     try {
       const res = await fetch('/api/send-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: clean, mac, ap, redirectUrl, isClient }),
+        body: JSON.stringify({ phone: clean, name: name.trim(), mac, ap, redirectUrl }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erro ao enviar.');
@@ -188,6 +189,29 @@ function PortalApp() {
           <form onSubmit={handleSendOTP} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wide" style={{ color:'rgba(255,255,255,0.5)' }}>
+                Nome
+              </label>
+              <div
+                className="flex items-stretch rounded-xl overflow-hidden transition-all"
+                style={{ border:'1px solid rgba(255,255,255,0.2)', background:'rgba(255,255,255,0.08)' }}
+                onFocus={(e) => e.currentTarget.style.boxShadow='0 0 0 3px rgba(250,204,21,0.2)'}
+                onBlur={(e) => e.currentTarget.style.boxShadow='none'}
+              >
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Seu nome completo"
+                  className="flex-1 px-3 py-3 text-sm text-white bg-transparent outline-none"
+                  style={{ caretColor:'#FACC15' }}
+                  autoComplete="name"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wide" style={{ color:'rgba(255,255,255,0.5)' }}>
                 WhatsApp
               </label>
               <div
@@ -211,21 +235,9 @@ function PortalApp() {
                   style={{ caretColor:'#FACC15' }}
                   autoComplete="tel"
                   inputMode="numeric"
-                  autoFocus
                 />
               </div>
             </div>
-
-            <label className="flex items-center gap-2.5 text-sm select-none cursor-pointer" style={{ color:'rgba(255,255,255,0.7)' }}>
-              <input
-                type="checkbox"
-                checked={isClient}
-                onChange={(e) => setIsClient(e.target.checked)}
-                className="w-4 h-4 rounded cursor-pointer"
-                style={{ accentColor:'#FACC15' }}
-              />
-              Já sou cliente Via01
-            </label>
 
             {error && (
               <p className="text-xs text-center rounded-xl py-2 px-3" style={{ background:'rgba(239,68,68,0.15)', border:'1px solid rgba(239,68,68,0.3)', color:'#FCA5A5' }}>

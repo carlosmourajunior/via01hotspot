@@ -60,9 +60,13 @@ def _generate_otp(length: int) -> str:
 async def send_otp(request: Request):
     body = await request.json()
     phone, mac = body.get("phone"), body.get("mac")
+    name = (body.get("name") or "").strip()
 
     if not phone or not mac:
         return JSONResponse({"error": "Telefone e MAC são obrigatórios."}, status_code=400)
+
+    if len(name) < 3:
+        return JSONResponse({"error": "Informe seu nome."}, status_code=400)
 
     clean_phone = _clean_phone(phone)
     if len(clean_phone) < 10:
@@ -81,7 +85,7 @@ async def send_otp(request: Request):
         "mac": mac,
         "ap": body.get("ap"),
         "redirectUrl": body.get("redirectUrl"),
-        "isClient": bool(body.get("isClient")),
+        "name": name,
     })
     print(f"[OTP] Enviado para {clean_phone} | MAC: {mac}")
     return {"ok": True}
@@ -114,14 +118,29 @@ async def verify_otp(request: Request):
     try:
         conn = db.get_conn()
         try:
+            # Classifica pelo telefone contra a base IXC sincronizada
+            try:
+                status = db.classificar_telefone(conn, clean_phone)
+            except Exception as e:
+                print(f"[DB] Erro ao classificar telefone: {e}")
+                conn.rollback()  # destrava a transação para o INSERT abaixo
+                status = None
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO hotspot_guests (phone, mac, ap, is_client, connected_at)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO hotspot_guests (phone, mac, ap, is_client, connected_at, name, client_status)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (phone, mac, connected_at) DO NOTHING
                     """,
-                    (clean_phone, entry["mac"], entry.get("ap"), entry["isClient"], datetime.now(timezone.utc)),
+                    (
+                        clean_phone,
+                        entry["mac"],
+                        entry.get("ap"),
+                        status == "cliente",
+                        datetime.now(timezone.utc),
+                        entry.get("name"),
+                        status,
+                    ),
                 )
             conn.commit()
         finally:
