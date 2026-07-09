@@ -10,6 +10,6 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: '../backend/public', // backend serve o frontend buildado
+    outDir: '../backend-py/static_portal', // servido pelo portal.py (FastAPI)
   },
 });
