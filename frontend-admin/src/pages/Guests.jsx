@@ -36,6 +36,56 @@ function BadgeStatus({ status }) {
   )
 }
 
+function ModalWhatsApp({ total, enviando, onEnviar, onFechar }) {
+  const [msg, setMsg] = useState('')
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem',
+    }}>
+      <div style={{
+        background: '#fff', borderRadius: 12, padding: '1.5rem', width: '100%',
+        maxWidth: 520, boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+      }}>
+        <h2 style={{ margin: '0 0 .25rem', fontSize: '1.1rem' }}>
+          📨 Enviar WhatsApp para {total} contato{total > 1 ? 's' : ''}
+        </h2>
+        <p style={{ margin: '0 0 1rem', fontSize: '.82rem', color: '#7f8c8d' }}>
+          Use <code style={{ background: '#f0f0f0', padding: '0 4px', borderRadius: 4 }}>{'{nome}'}</code>{' '}
+          para incluir o primeiro nome do contato na mensagem.
+        </p>
+        <textarea
+          value={msg}
+          onChange={e => setMsg(e.target.value)}
+          placeholder={'Olá {nome}! A Via01 tem uma oferta especial de internet fibra para você…'}
+          rows={6}
+          autoFocus
+          style={{
+            width: '100%', boxSizing: 'border-box', resize: 'vertical',
+            padding: '.7rem .8rem', borderRadius: 8, border: '1px solid #d5dbdb',
+            fontFamily: 'inherit', fontSize: '.9rem',
+          }}
+        />
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem',
+        }}>
+          <span style={{ fontSize: '.78rem', color: '#95a5a6' }}>{msg.trim().length} caracteres</span>
+          <div style={{ display: 'flex', gap: '.6rem' }}>
+            <button className="btn-secondary" onClick={onFechar} disabled={enviando}>Cancelar</button>
+            <button
+              className="btn-primary"
+              onClick={() => onEnviar(msg)}
+              disabled={enviando || msg.trim().length < 3}
+            >
+              {enviando ? `Enviando… (~${total}s)` : 'Enviar mensagens'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Guests() {
   const [guests,  setGuests]  = useState(null)
   const [loading, setLoading] = useState(false)
@@ -44,6 +94,9 @@ export default function Guests() {
   const [aviso,   setAviso]   = useState(null)
   const [filtro,  setFiltro]  = useState('todos')
   const [busca,   setBusca]   = useState('')
+  const [selecionados, setSelecionados] = useState(new Set())
+  const [modalAberto,  setModalAberto]  = useState(false)
+  const [enviando,     setEnviando]     = useState(false)
 
   const carregar = () => {
     setLoading(true); setErro(null)
@@ -83,11 +136,46 @@ export default function Guests() {
     return r
   }, [lista, filtro, busca])
 
+  const idsVisiveis = useMemo(() => visiveis.map(g => g.id), [visiveis])
+  const todosVisiveisSelecionados = idsVisiveis.length > 0 && idsVisiveis.every(id => selecionados.has(id))
+
+  const toggleUm = (id) => {
+    setSelecionados(prev => {
+      const s = new Set(prev)
+      s.has(id) ? s.delete(id) : s.add(id)
+      return s
+    })
+  }
+
+  const toggleTodosVisiveis = () => {
+    setSelecionados(prev => {
+      const s = new Set(prev)
+      if (todosVisiveisSelecionados) idsVisiveis.forEach(id => s.delete(id))
+      else idsVisiveis.forEach(id => s.add(id))
+      return s
+    })
+  }
+
+  const enviarWhatsApp = (mensagem) => {
+    setEnviando(true); setErro(null); setAviso(null)
+    axios.post('/api/guests/enviar-whatsapp', {
+      ids: Array.from(selecionados),
+      message: mensagem,
+    }, { timeout: 300000 })
+      .then(r => {
+        setAviso(r.data.message)
+        setModalAberto(false)
+        setSelecionados(new Set())
+      })
+      .catch(e => setErro(e.response?.data?.detail || e.message))
+      .finally(() => setEnviando(false))
+  }
+
   const KPIS = [
     { id: 'todos',      label: 'Total de acessos', valor: lista.length },
     { id: 'cliente',    label: 'Clientes Via01',   valor: contagem.cliente },
     { id: 'ex_cliente', label: 'Ex-clientes',      valor: contagem.ex_cliente },
-    { id: 'nunca_foi',  label: 'Nunca foram',      valor: contagem.nunca_foi },
+    { id: 'nunca_foi',  label: 'Novos contatos',   valor: contagem.nunca_foi },
   ]
 
   return (
@@ -107,6 +195,14 @@ export default function Guests() {
           </button>
           <button className="btn-secondary" onClick={carregar} disabled={loading}>
             {loading ? 'Atualizando…' : '↻ Atualizar'}
+          </button>
+          <button
+            className="btn-primary"
+            onClick={() => setModalAberto(true)}
+            disabled={selecionados.size === 0}
+            title={selecionados.size === 0 ? 'Selecione contatos na tabela' : ''}
+          >
+            📨 Enviar WhatsApp ({selecionados.size})
           </button>
         </div>
       </div>
@@ -135,6 +231,15 @@ export default function Guests() {
         <table>
           <thead>
             <tr>
+              <th style={{ width: 34 }}>
+                <input
+                  type="checkbox"
+                  checked={todosVisiveisSelecionados}
+                  onChange={toggleTodosVisiveis}
+                  title="Selecionar todos os visíveis (respeita o filtro atual)"
+                  style={{ cursor: 'pointer' }}
+                />
+              </th>
               <th>Nome</th>
               <th>Telefone</th>
               <th>Classificação</th>
@@ -144,7 +249,15 @@ export default function Guests() {
           </thead>
           <tbody>
             {visiveis.map(g => (
-              <tr key={g.id}>
+              <tr key={g.id} style={selecionados.has(g.id) ? { background: '#f0edff' } : undefined}>
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={selecionados.has(g.id)}
+                    onChange={() => toggleUm(g.id)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                </td>
                 <td>{g.name || '—'}</td>
                 <td style={{ whiteSpace: 'nowrap' }}>{formatPhone(g.phone)}</td>
                 <td><BadgeStatus status={statusDe(g)} /></td>
@@ -153,11 +266,20 @@ export default function Guests() {
               </tr>
             ))}
             {!loading && visiveis.length === 0 && (
-              <tr><td colSpan={5} className="sem-resultado">Nenhum acesso registrado.</td></tr>
+              <tr><td colSpan={6} className="sem-resultado">Nenhum acesso registrado.</td></tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {modalAberto && (
+        <ModalWhatsApp
+          total={selecionados.size}
+          enviando={enviando}
+          onEnviar={enviarWhatsApp}
+          onFechar={() => setModalAberto(false)}
+        />
+      )}
     </div>
   )
 }

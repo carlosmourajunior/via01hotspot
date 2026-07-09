@@ -1,8 +1,12 @@
 """Rotas do admin para os acessos do hotspot (protegidas pelo middleware JWT do main.py)."""
+import time
+
 import psycopg2.extras
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 import db
+import evolution
 
 router = APIRouter()
 
@@ -58,3 +62,58 @@ def reclassificar_guests():
     finally:
         conn.close()
     return {"message": f"{atualizados} acessos reclassificados.", "total": atualizados}
+
+
+class EnvioWhatsAppBody(BaseModel):
+    ids: list[int]
+    message: str
+
+
+@router.post("/api/guests/enviar-whatsapp")
+def enviar_whatsapp_guests(body: EnvioWhatsAppBody):
+    """Envia uma mensagem via Evolution API para os contatos selecionados.
+
+    Números repetidos entre os selecionados recebem uma única mensagem.
+    O placeholder {nome} na mensagem é trocado pelo primeiro nome do contato.
+    """
+    message = (body.message or "").strip()
+    if len(message) < 3:
+        raise HTTPException(status_code=400, detail="Digite a mensagem a enviar.")
+    if not body.ids:
+        raise HTTPException(status_code=400, detail="Nenhum contato selecionado.")
+
+    conn = db.get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT phone, name FROM hotspot_guests WHERE id = ANY(%s) ORDER BY id",
+                (body.ids,),
+            )
+            registros = cur.fetchall()
+    finally:
+        conn.close()
+
+    # Dedupe por telefone normalizado (mantém o primeiro nome encontrado)
+    contatos = {}
+    for phone, name in registros:
+        chave = db.normalizar_fone(phone)
+        if chave and chave not in contatos:
+            contatos[chave] = (phone, name)
+
+    enviados, falhas = 0, []
+    for i, (phone, name) in enumerate(contatos.values()):
+        primeiro_nome = (name or "").strip().split(" ")[0].title() if name else ""
+        texto = message.replace("{nome}", primeiro_nome).replace("  ", " ").strip()
+        try:
+            evolution.send_text(phone, texto)
+            enviados += 1
+        except Exception as e:
+            print(f"[WHATSAPP] Falha ao enviar para {phone}: {e}")
+            falhas.append(phone)
+        if i < len(contatos) - 1:
+            time.sleep(1)  # pausa entre envios para não disparar bloqueio anti-spam
+
+    msg = f"{enviados} mensagem(ns) enviada(s)."
+    if falhas:
+        msg += f" {len(falhas)} falha(s)."
+    return {"message": msg, "enviados": enviados, "falhas": falhas}

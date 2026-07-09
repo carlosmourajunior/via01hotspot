@@ -79,6 +79,8 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://controle:controle@db:5432/controle
+      # Evolution API pelo nome do serviço na rede interna do compose
+      EVOLUTION_URL: http://evolution-api:8080
     volumes:
       - ./backend-py/uploads:/app/uploads
       # jsonl do backend Node, para o script de importação de guests
