@@ -58,6 +58,26 @@ def reclassificar_guests():
                     (status, status == "cliente", nome_ixc, reg_id),
                 )
             atualizados += 1
+
+        # Mantém o funil em dia: atualiza classificação/nome dos leads e
+        # move para 'convertido' quem virou cliente
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, phone FROM hotspot_leads")
+            leads = cur.fetchall()
+        for lead_id, phone in leads:
+            status, nome_ixc = db.classificar_telefone(conn, phone)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE hotspot_leads
+                    SET client_status = %s,
+                        name          = COALESCE(NULLIF(%s, ''), name),
+                        etapa         = CASE WHEN %s = 'cliente' THEN 'convertido' ELSE etapa END,
+                        atualizado_em = NOW()
+                    WHERE id = %s
+                    """,
+                    (status, nome_ixc, status, lead_id),
+                )
         conn.commit()
     finally:
         conn.close()
@@ -107,6 +127,22 @@ def enviar_whatsapp_guests(body: EnvioWhatsAppBody):
         try:
             evolution.send_text(phone, texto)
             enviados += 1
+            # Reflete o contato no funil de vendas
+            conn2 = db.get_conn()
+            try:
+                with conn2.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE hotspot_leads
+                        SET etapa = CASE WHEN etapa = 'novo' THEN 'contatado' ELSE etapa END,
+                            ultimo_contato = NOW(), atualizado_em = NOW()
+                        WHERE phone = %s
+                        """,
+                        (db.normalizar_fone(phone),),
+                    )
+                conn2.commit()
+            finally:
+                conn2.close()
         except Exception as e:
             print(f"[WHATSAPP] Falha ao enviar para {phone}: {e}")
             falhas.append(phone)

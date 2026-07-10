@@ -4,6 +4,7 @@ import Login from './pages/Login'
 import VendasIXC from './pages/VendasIXC'
 import OsAnalise from './pages/OsAnalise'
 import Guests from './pages/Guests'
+import Funil from './pages/Funil'
 import Admin from './pages/Admin'
 
 // Injeta token em todas as requisições
@@ -29,6 +30,7 @@ const MENU = [
   { id: 'dashboard', label: 'Dashboard',    icon: '📊' },
   { id: 'os',        label: 'OS IXC',       icon: '🔧' },
   { id: 'guests',    label: 'Wi-Fi Guests', icon: '📶' },
+  { id: 'funil',     label: 'Funil',        icon: '🎯' },
   { id: 'admin',     label: 'Admin',        icon: '⚙️'  },
 ]
 
@@ -106,6 +108,7 @@ export default function App() {
         {pagina === 'dashboard' && <VendasIXC />}
         {pagina === 'os'        && <OsAnalise />}
         {pagina === 'guests'    && <Guests />}
+        {pagina === 'funil'     && <Funil />}
         {pagina === 'admin'     && <Admin user={user} />}
       </main>
     </div>

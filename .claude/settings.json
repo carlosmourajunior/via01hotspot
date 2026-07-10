@@ -19,7 +19,8 @@
       "Bash(git fetch *)",
       "Bash(git pull *)",
       "Bash(curl -s -o /dev/null -w \"GET / → %{http_code}\\\\n\" http://localhost:8082/)",
-      "Bash(curl -s -o /dev/null -w \"logo → %{http_code}\\\\n\" http://localhost:8082/logo-via01.png)"
+      "Bash(curl -s -o /dev/null -w \"logo → %{http_code}\\\\n\" http://localhost:8082/logo-via01.png)",
+      "Bash(python -c \"import sys,json; [print\\(l['id'], l['phone'], l['etapa']\\) for l in json.load\\(sys.stdin\\)]\")"
     ]
   }
 }

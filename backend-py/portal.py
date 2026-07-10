@@ -125,6 +125,9 @@ async def verify_otp(request: Request):
                 print(f"[DB] Erro ao classificar telefone: {e}")
                 conn.rollback()  # destrava a transação para o INSERT abaixo
                 status, nome_ixc = None, None
+            agora = datetime.now(timezone.utc)
+            # Nome do cadastro IXC é mais confiável; o digitado fica p/ quem não está na base
+            nome_final = nome_ixc or entry.get("name")
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -137,12 +140,13 @@ async def verify_otp(request: Request):
                         entry["mac"],
                         entry.get("ap"),
                         status == "cliente",
-                        datetime.now(timezone.utc),
-                        # Nome do cadastro IXC é mais confiável; o digitado fica p/ quem não está na base
-                        nome_ixc or entry.get("name"),
+                        agora,
+                        nome_final,
                         status,
                     ),
                 )
+            # Alimenta o funil de vendas (novos e ex-clientes; cliente ativo vira 'convertido')
+            db.upsert_lead(conn, clean_phone, nome_final, status, agora)
             conn.commit()
         finally:
             conn.close()

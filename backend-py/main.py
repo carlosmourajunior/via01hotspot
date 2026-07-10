@@ -27,6 +27,7 @@ from dotenv import load_dotenv
 
 import db as hotspot_db
 from guests_admin import router as guests_router, reclassificar_guests
+from funil_admin import router as funil_router
 
 load_dotenv()
 
@@ -3074,8 +3075,9 @@ def resumo(origem: str = "ouro_fino"):
     }
 
 
-# ── Acessos do hotspot (Wi-Fi guests) ────────────────────────────────────────
+# ── Acessos do hotspot (Wi-Fi guests) e funil de vendas ─────────────────────
 app.include_router(guests_router)
+app.include_router(funil_router)
 
 
 # ── Frontend estático (build do frontend-admin) ─────────────────────────────

@@ -557,3 +557,108 @@ tr:hover td { background: #faf7ff; }
   color: var(--texto-suave);
   font-size: 1rem;
 }
+
+/* ── Funil de vendas (kanban) ── */
+.funil-board {
+  display: flex;
+  gap: 0.8rem;
+  align-items: flex-start;
+  overflow-x: auto;
+  padding-bottom: 1rem;
+}
+
+.funil-col {
+  flex: 1;
+  min-width: 195px;
+  background: #efecf5;
+  border-radius: 12px;
+  transition: background 0.15s;
+}
+
+.funil-col-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.8rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--texto);
+  border-top: 3px solid var(--roxo);
+  border-radius: 12px 12px 0 0;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(44, 13, 90, 0.08);
+}
+
+.funil-col-count {
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.05rem 0.5rem;
+  border-radius: 10px;
+}
+
+.funil-col-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.6rem;
+  min-height: 120px;
+  max-height: calc(100vh - 260px);
+  overflow-y: auto;
+}
+
+.funil-card {
+  background: #fff;
+  border: 1px solid var(--borda);
+  border-radius: 10px;
+  padding: 0.6rem 0.7rem;
+  cursor: grab;
+  box-shadow: 0 1px 3px rgba(44, 13, 90, 0.07);
+  transition: box-shadow 0.15s, transform 0.1s;
+}
+.funil-card:hover { box-shadow: 0 3px 10px rgba(44, 13, 90, 0.15); transform: translateY(-1px); }
+.funil-card:active { cursor: grabbing; }
+
+.funil-card-nome {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--texto);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.funil-card-fone {
+  font-size: 0.76rem;
+  color: var(--texto-suave);
+  margin-top: 0.1rem;
+}
+
+.funil-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+  font-size: 0.68rem;
+  color: var(--texto-suave);
+}
+
+.funil-card-obs {
+  margin-top: 0.4rem;
+  font-size: 0.72rem;
+  color: #4a3670;
+  background: var(--roxo-suave);
+  border-radius: 6px;
+  padding: 0.25rem 0.45rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.funil-col-vazia {
+  text-align: center;
+  color: #b9aed0;
+  font-size: 0.85rem;
+  padding: 1.2rem 0;
+}
