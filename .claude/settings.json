@@ -24,7 +24,8 @@
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(r['source_id'], r['manual'], r['nome']\\) for r in d['registros'][:5]]\")",
       "Bash(python -c ' *)",
       "Bash(curl -s -m 5 http://192.168.23.11:8082/api/health -w \" [%{http_code}]\")",
-      "Bash(curl -s -m 5 -X POST http://192.168.23.11:8082/api/auth/login -H \"Content-Type: application/json\" -d '{\"username\":\"admin\",\"password\":\"admin123\"}' -w \" [%{http_code}]\")"
+      "Bash(curl -s -m 5 -X POST http://192.168.23.11:8082/api/auth/login -H \"Content-Type: application/json\" -d '{\"username\":\"admin\",\"password\":\"admin123\"}' -w \" [%{http_code}]\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('contratos_ativos:', d['contratos_ativos'], '| registros listados:', d['total'], '| desconsiderados:', len\\(d['desconsiderados']\\)\\)\")"
     ]
   }
 }

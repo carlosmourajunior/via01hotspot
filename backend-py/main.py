@@ -3040,6 +3040,13 @@ def ixc_vendas(origem: str = "borda_mata"):
             cur.execute("SELECT MIN(data_abertura)::date AS d FROM ixc_os")
             os_min_row = cur.fetchone()
             os_min = os_min_row["d"] if os_min_row else None
+
+            # Base atual de contratos ativos (status A) — bate com o número do IXC
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM ixc_contratos WHERE cidade_ixc_id = %s AND status = 'A'",
+                (cidade_id,)
+            )
+            contratos_ativos = cur.fetchone()["n"]
     finally:
         conn.close()
 
@@ -3063,12 +3070,13 @@ def ixc_vendas(origem: str = "borda_mata"):
             registros.append(r)
 
     return {
-        "total":           len(registros),
-        "registros":       registros,
-        "desconsiderados": desconsiderados,
-        "origem":          origem,
-        "last_sync":       last_sync.isoformat() if last_sync else None,
-        "sem_sync":        len(registros) == 0 and last_sync is None,
+        "total":            len(registros),
+        "contratos_ativos": contratos_ativos,
+        "registros":        registros,
+        "desconsiderados":  desconsiderados,
+        "origem":           origem,
+        "last_sync":        last_sync.isoformat() if last_sync else None,
+        "sem_sync":         len(registros) == 0 and last_sync is None,
     }
 
 
