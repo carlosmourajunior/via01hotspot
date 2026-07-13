@@ -554,6 +554,17 @@ def init_db():
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_contratos_manuais_cidade ON contratos_manuais (cidade_ixc_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_contratos_manuais_data   ON contratos_manuais (data_ativacao)")
+        # Registros do IXC ocultados manualmente da dashboard (duplicados,
+        # lançamentos errados etc.) — o sync não os traz de volta à lista
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ixc_registros_ocultos (
+                tipo        TEXT NOT NULL,          -- 'contrato' | 'os'
+                source_id   INTEGER NOT NULL,
+                nome        TEXT,
+                ocultado_em TIMESTAMP DEFAULT NOW(),
+                PRIMARY KEY (tipo, source_id)
+            )
+        """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS cancelamentos_manuais (
                 id            SERIAL PRIMARY KEY,
@@ -2778,6 +2789,10 @@ def ixc_cancelamentos_ixc(origem: str = "borda_mata"):
                     WHERE o.id_cidade = %s
                       AND o.id_assunto = %s
                       AND o.status = 'F'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM ixc_registros_ocultos oc
+                          WHERE oc.tipo = 'os' AND oc.source_id = o.ixc_os_id
+                      )
 
                     UNION ALL
 
@@ -2825,6 +2840,30 @@ def ixc_cancelamentos_ixc(origem: str = "borda_mata"):
         "last_sync": last_sync.isoformat() if last_sync else None,
         "sem_sync":  len(rows) == 0 and last_sync is None,
     }
+
+
+@app.delete("/api/ixc/registros-ixc/{tipo}/{source_id}")
+def ocultar_registro_ixc(tipo: str, source_id: int, nome: str = ""):
+    """Oculta da dashboard um registro vindo do IXC (contrato ou OS de cancelamento).
+
+    O registro continua existindo no espelho local e no IXC; ele apenas sai da
+    lista e das estatísticas, e o sync não o traz de volta.
+    """
+    if tipo not in ("contrato", "os"):
+        raise HTTPException(status_code=400, detail="Tipo inválido (use 'contrato' ou 'os').")
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO ixc_registros_ocultos (tipo, source_id, nome)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (tipo, source_id) DO NOTHING
+            """, (tipo, source_id, nome or ""))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"message": "Registro ocultado da lista."}
 
 
 @app.post("/api/ixc/contratos-manuais")
@@ -2953,6 +2992,10 @@ def ixc_vendas(origem: str = "borda_mata"):
                     LEFT JOIN ixc_clientes cl ON cl.ixc_id = ct.id_cliente
                     WHERE ct.cidade_ixc_id = %s
                       AND cl.ativo = 'S'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM ixc_registros_ocultos oc
+                          WHERE oc.tipo = 'contrato' AND oc.source_id = ct.ixc_contrato_id
+                      )
 
                     UNION ALL
 

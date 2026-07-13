@@ -52,7 +52,7 @@ function BadgeManual() {
 
 function BtnLixeira({ onClick }) {
   return (
-    <button onClick={onClick} title="Remover registro manual"
+    <button onClick={onClick} title="Remover da lista"
       style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#e74c3c',
         fontSize: '1rem', padding: '0 0.15rem', lineHeight: 1 }}>
       🗑
@@ -245,6 +245,18 @@ export default function VendasIXC() {
     try {
       await axios.delete(`/api/ixc/cancelamentos-manuais/${source_id}`)
       carregarC(cidade)
+    } catch(err) {
+      setErroGlobal(err.response?.data?.detail || err.message)
+    }
+  }
+
+  // Registros vindos do IXC não podem ser apagados (o sync os recriaria) —
+  // são ocultados da lista e das estatísticas de forma permanente
+  const ocultarIXC = async (tipo, source_id, nome, recarregar) => {
+    if (!window.confirm(`Remover "${nome || 'este registro'}" da lista?\n\nEle sai da dashboard e das estatísticas (o sync não o traz de volta), mas continua existindo no IXC.`)) return
+    try {
+      await axios.delete(`/api/ixc/registros-ixc/${tipo}/${source_id}`, { params: { nome } })
+      recarregar(cidade)
     } catch(err) {
       setErroGlobal(err.response?.data?.detail || err.message)
     }
@@ -538,7 +550,9 @@ export default function VendasIXC() {
                       <td>{r.bairro || '—'}</td>
                       <td><BadgeAtivo ativo={r.cliente_ativo} /></td>
                       <td style={{ textAlign: 'center', width: 32 }}>
-                        {r.manual && <BtnLixeira onClick={() => excluirContrato(r.source_id)} />}
+                        <BtnLixeira onClick={() => r.manual
+                          ? excluirContrato(r.source_id)
+                          : ocultarIXC('contrato', r.source_id, r.nome, carregarV)} />
                       </td>
                     </tr>
                   ))
@@ -627,7 +641,9 @@ export default function VendasIXC() {
                       <td>{r.bairro || '—'}</td>
                       <td>{r.fone || '—'}</td>
                       <td style={{ textAlign: 'center', width: 32 }}>
-                        {r.manual && <BtnLixeira onClick={() => excluirCancelamento(r.source_id)} />}
+                        <BtnLixeira onClick={() => r.manual
+                          ? excluirCancelamento(r.source_id)
+                          : ocultarIXC('os', r.source_id, r.nome, carregarC)} />
                       </td>
                     </tr>
                   ))
