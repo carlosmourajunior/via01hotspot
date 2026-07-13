@@ -297,6 +297,16 @@ export default function VendasIXC() {
     )
   }, [kpV.doMes, buscaVendas])
 
+  // Contratos que não contam como nova instalação (titularidade / sem OS),
+  // filtrados pelo mesmo mês/ano da tabela — visíveis para auditoria
+  const [mostrarDesconsiderados, setMostrarDesconsiderados] = useState(false)
+  const desconsideradosMes = useMemo(() => {
+    return (dadosV?.desconsiderados ?? []).filter(r => {
+      const d = toDate(r.data_ativacao)
+      return d && d.getFullYear() === anoFiltro && d.getMonth() === mesFiltro
+    })
+  }, [dadosV, mesFiltro, anoFiltro])
+
   const cancMesFilt = useMemo(() => {
     const q = buscaCanc.trim().toLowerCase()
     if (!q) return kpC.doMes
@@ -560,6 +570,43 @@ export default function VendasIXC() {
               </tbody>
             </table>
           </div>
+
+          {/* Contratos que não contam como nova instalação (auditoria) */}
+          {desconsideradosMes.length > 0 && (
+            <div style={{ marginTop: '0.7rem' }}>
+              <button
+                onClick={() => setMostrarDesconsiderados(v => !v)}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                  fontSize: '.8rem', color: '#9c5700', fontFamily: 'inherit', fontWeight: 600,
+                }}
+              >
+                {mostrarDesconsiderados ? '▾' : '▸'} {desconsideradosMes.length} contrato(s) do IXC
+                não contam como nova instalação neste mês
+              </button>
+              {mostrarDesconsiderados && (
+                <div className="table-wrapper" style={{ marginTop: '0.5rem', maxHeight: 220 }}>
+                  <table>
+                    <thead>
+                      <tr><th>Ativação</th><th>Nome</th><th>Motivo</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                      {desconsideradosMes.map((r, i) => (
+                        <tr key={i} style={{ background: '#fffdf5' }}>
+                          <td style={{ whiteSpace: 'nowrap' }}>{r.data_ativacao}</td>
+                          <td>{r.nome || '—'}</td>
+                          <td style={{ fontSize: '.78rem', color: '#9c5700' }}>{r.motivo}</td>
+                          <td style={{ textAlign: 'center', width: 32 }}>
+                            <BtnLixeira onClick={() => ocultarIXC('contrato', r.source_id, r.nome, carregarV)} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ── Tabela de cancelamentos ── */}

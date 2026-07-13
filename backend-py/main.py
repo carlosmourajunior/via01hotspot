@@ -2987,7 +2987,17 @@ def ixc_vendas(origem: str = "borda_mata"):
                         cl.nome,
                         cl.bairro,
                         cl.fone,
-                        cl.ativo           AS cliente_ativo
+                        cl.ativo           AS cliente_ativo,
+                        -- Nova instalação exige cadastro recente: troca de
+                        -- titularidade reaproveita cadastro antigo
+                        (cl.data_cadastro IS NOT NULL
+                         AND cl.data_cadastro >= ct.data_ativacao - INTERVAL '90 days') AS cadastro_novo,
+                        -- ... e OS de instalação (assuntos 1=Instalação, 18=Novo Cliente)
+                        EXISTS (
+                            SELECT 1 FROM ixc_os osx
+                            WHERE osx.id_cliente = ct.id_cliente
+                              AND osx.id_assunto IN (1, 18)
+                        ) AS tem_os_instalacao
                     FROM ixc_contratos ct
                     LEFT JOIN ixc_clientes cl ON cl.ixc_id = ct.id_cliente
                     WHERE ct.cidade_ixc_id = %s
@@ -3008,7 +3018,9 @@ def ixc_vendas(origem: str = "borda_mata"):
                         nome,
                         bairro,
                         fone,
-                        'S'                AS cliente_ativo
+                        'S'                AS cliente_ativo,
+                        TRUE               AS cadastro_novo,
+                        TRUE               AS tem_os_instalacao
                     FROM contratos_manuais
                     WHERE cidade_ixc_id = %s
                 ) t
@@ -3022,21 +3034,41 @@ def ixc_vendas(origem: str = "borda_mata"):
             )
             last_sync_row = cur.fetchone()
             last_sync = last_sync_row["ts"] if last_sync_row else None
+
+            # A exigência de OS só vale para o período coberto pelo sync de OS
+            # (senão o histórico antigo, sem OS sincronizada, sumiria da lista)
+            cur.execute("SELECT MIN(data_abertura)::date AS d FROM ixc_os")
+            os_min_row = cur.fetchone()
+            os_min = os_min_row["d"] if os_min_row else None
     finally:
         conn.close()
 
-    registros = []
+    registros, desconsiderados = [], []
     for r in rows:
         da = r.get("data_ativacao")
+        cadastro_novo = r.pop("cadastro_novo", True)
+        tem_os = r.pop("tem_os_instalacao", True)
         r["data_ativacao"] = str(da) if da else ""
-        registros.append(r)
+
+        motivo = None
+        if not r["manual"]:
+            if not cadastro_novo:
+                motivo = "Cadastro antigo — possível troca de titularidade"
+            elif os_min and da and da >= os_min and not tem_os:
+                motivo = "Sem OS de instalação vinculada"
+
+        if motivo:
+            desconsiderados.append({**r, "motivo": motivo})
+        else:
+            registros.append(r)
 
     return {
-        "total":     len(registros),
-        "registros": registros,
-        "origem":    origem,
-        "last_sync": last_sync.isoformat() if last_sync else None,
-        "sem_sync":  len(registros) == 0 and last_sync is None,
+        "total":           len(registros),
+        "registros":       registros,
+        "desconsiderados": desconsiderados,
+        "origem":          origem,
+        "last_sync":       last_sync.isoformat() if last_sync else None,
+        "sem_sync":        len(registros) == 0 and last_sync is None,
     }
 
 

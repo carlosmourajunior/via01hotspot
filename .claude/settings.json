@@ -21,7 +21,10 @@
       "Bash(curl -s -o /dev/null -w \"GET / → %{http_code}\\\\n\" http://localhost:8082/)",
       "Bash(curl -s -o /dev/null -w \"logo → %{http_code}\\\\n\" http://localhost:8082/logo-via01.png)",
       "Bash(python -c \"import sys,json; [print\\(l['id'], l['phone'], l['etapa']\\) for l in json.load\\(sys.stdin\\)]\")",
-      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(r['source_id'], r['manual'], r['nome']\\) for r in d['registros'][:5]]\")"
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(r['source_id'], r['manual'], r['nome']\\) for r in d['registros'][:5]]\")",
+      "Bash(python -c ' *)",
+      "Bash(curl -s -m 5 http://192.168.23.11:8082/api/health -w \" [%{http_code}]\")",
+      "Bash(curl -s -m 5 -X POST http://192.168.23.11:8082/api/auth/login -H \"Content-Type: application/json\" -d '{\"username\":\"admin\",\"password\":\"admin123\"}' -w \" [%{http_code}]\")"
     ]
   }
 }
