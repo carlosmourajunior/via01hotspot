@@ -58,6 +58,26 @@ app.add_middleware(
 # Rotas públicas — sem autenticação
 _PUBLIC = {"/api/auth/login", "/api/health"}
 
+# RBAC por prefixo de rota: primeiro match (startswith) vence; admin passa sempre.
+# Rota sem match exige apenas autenticação (dashboard e recursos compartilhados
+# ficam "abertos" de propósito — falha aberta para rotas não mapeadas).
+_FUNCAO_ROTAS = [
+    ("/api/ixc/financeiro",            {"financeiro"}),
+    ("/api/ixc/sync-financeiro",       {"financeiro"}),
+    ("/api/guests",                    {"vendas"}),
+    ("/api/leads",                     {"vendas"}),
+    ("/api/ixc/vendas",                {"vendas", "financeiro"}),
+    ("/api/ixc/cancelamentos-ixc",     {"vendas", "financeiro"}),
+    ("/api/ixc/contratos-manuais",     {"vendas", "financeiro"}),
+    ("/api/ixc/cancelamentos-manuais", {"vendas", "financeiro"}),
+    ("/api/ixc/ajustes-manuais",       {"vendas", "financeiro"}),
+    ("/api/ixc/registros-",            {"vendas", "financeiro"}),
+    ("/api/ixc/analise-os",            {"suporte"}),
+    ("/api/ixc/os",                    {"suporte"}),
+    ("/api/ixc/sync-os",               {"suporte"}),
+    ("/api/olt/",                      {"suporte"}),
+]
+
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     # Só as rotas /api/* exigem token; o resto é o frontend estático (SPA)
@@ -67,9 +87,22 @@ async def auth_middleware(request: Request, call_next):
     if not auth.startswith("Bearer "):
         return JSONResponse({"detail": "Não autenticado"}, status_code=401)
     try:
-        jwt.decode(auth[7:], SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(auth[7:], SECRET_KEY, algorithms=[ALGORITHM])
     except JWTError:
         return JSONResponse({"detail": "Token inválido ou expirado"}, status_code=401)
+
+    # Enforcement por função (admin passa sempre)
+    if not payload.get("admin"):
+        funcoes_usuario = set(payload.get("funcoes") or [])
+        for prefixo, exigidas in _FUNCAO_ROTAS:
+            if request.url.path.startswith(prefixo):
+                if not (funcoes_usuario & exigidas):
+                    return JSONResponse(
+                        {"detail": f"Acesso restrito à função: {' ou '.join(sorted(exigidas))}"},
+                        status_code=403,
+                    )
+                break
+
     return await call_next(request)
 
 UPLOAD_DIR = Path("/app/uploads")

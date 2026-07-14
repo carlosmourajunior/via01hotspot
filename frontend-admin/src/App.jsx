@@ -27,19 +27,28 @@ axios.interceptors.response.use(
   }
 )
 
+// funcoes: quais funções enxergam a aba (admin vê tudo; adminOnly = só admins)
 const MENU = [
-  { id: 'dashboard',  label: 'Dashboard',    icon: '📊' },
-  { id: 'financeiro', label: 'Financeiro',   icon: '💰' },
-  { id: 'os',         label: 'OS IXC',       icon: '🔧' },
-  { id: 'guests',     label: 'Wi-Fi Guests', icon: '📶' },
-  { id: 'funil',      label: 'Funil',        icon: '🎯' },
-  { id: 'admin',      label: 'Admin',        icon: '⚙️'  },
+  { id: 'dashboard',  label: 'Dashboard',    icon: '📊', funcoes: ['vendas', 'financeiro'] },
+  { id: 'financeiro', label: 'Financeiro',   icon: '💰', funcoes: ['financeiro'] },
+  { id: 'os',         label: 'OS IXC',       icon: '🔧', funcoes: ['suporte'] },
+  { id: 'guests',     label: 'Wi-Fi Guests', icon: '📶', funcoes: ['vendas'] },
+  { id: 'funil',      label: 'Funil',        icon: '🎯', funcoes: ['vendas'] },
+  { id: 'admin',      label: 'Admin',        icon: '⚙️',  funcoes: [], adminOnly: true },
 ]
+
+function menuVisivel(user) {
+  return MENU.filter(item => {
+    if (item.adminOnly) return user?.admin === true
+    if (user?.admin) return true
+    return item.funcoes.some(f => (user?.funcoes || []).includes(f))
+  })
+}
 
 export default function App() {
   const [user,   setUser]   = useState(null)   // null = não autenticado
   const [pronto, setPronto] = useState(false)  // evita flash de login antes de validar token
-  const [pagina, setPagina] = useState('dashboard')
+  const [pagina, setPagina] = useState(null)   // definida após login (primeira aba visível)
 
   // Valida token existente no localStorage
   useEffect(() => {
@@ -49,6 +58,16 @@ export default function App() {
       .then(res => { setUser(res.data); setPronto(true) })
       .catch(() => { localStorage.removeItem('token'); setPronto(true) })
   }, [])
+
+  // Página inicial = primeira aba visível para o perfil (não fixar dashboard:
+  // usuário só-suporte, por exemplo, não enxerga o Dashboard)
+  useEffect(() => {
+    if (!user) return
+    const visiveis = menuVisivel(user)
+    if (!pagina || !visiveis.some(m => m.id === pagina)) {
+      setPagina(visiveis[0]?.id || null)
+    }
+  }, [user])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLogin = (userData) => setUser(userData)
 
@@ -69,7 +88,7 @@ export default function App() {
         </div>
 
         <nav className="sidebar-nav">
-          {MENU.map(item => (
+          {menuVisivel(user).map(item => (
             <button
               key={item.id}
               className={'nav-item' + (pagina === item.id ? ' active' : '')}
@@ -113,6 +132,14 @@ export default function App() {
         {pagina === 'guests'     && <Guests />}
         {pagina === 'funil'      && <Funil />}
         {pagina === 'admin'      && <Admin user={user} />}
+        {!pagina && (
+          <div className="page">
+            <div className="card" style={{ textAlign: 'center', padding: '3rem', color: '#888' }}>
+              🔒 Nenhuma função atribuída ao seu usuário. Peça a um administrador
+              para atribuir uma função (Vendas, Financeiro ou Suporte) na aba Admin.
+            </div>
+          </div>
+        )}
       </main>
     </div>
   )
