@@ -266,9 +266,9 @@ export default function VendasIXC() {
   const [mostrarAjustes, setMostrarAjustes] = useState(false)
   const [ajustes, setAjustes] = useState(null)
 
-  const carregarAjustes = async () => {
+  const carregarAjustes = async (orig = cidade) => {
     try {
-      const r = await axios.get('/api/ixc/ajustes-manuais')
+      const r = await axios.get('/api/ixc/ajustes-manuais', { params: { origem: orig } })
       setAjustes(r.data)
     } catch(err) {
       setErroGlobal(err.response?.data?.detail || err.message)
@@ -280,6 +280,11 @@ export default function VendasIXC() {
     setMostrarAjustes(abrir)
     if (abrir) carregarAjustes()
   }
+
+  // Painel aberto acompanha a troca de cidade
+  useEffect(() => {
+    if (mostrarAjustes) { setAjustes(null); carregarAjustes(cidade) }
+  }, [cidade])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const restaurarOculto = async (tipo, source_id, nome) => {
     if (!window.confirm(`Restaurar "${nome || 'este registro'}"? Ele volta à lista da dashboard.`)) return
@@ -800,7 +805,7 @@ export default function VendasIXC() {
         >
           {mostrarAjustes ? '▾' : '▸'} ⚙ Ajustes manuais
           <span style={{ fontWeight: 400, fontSize: '.8rem', color: '#888', marginLeft: 8 }}>
-            inseridos, validados e removidos manualmente (todas as cidades)
+            inseridos, validados e removidos manualmente — {CIDADES.find(c => c.id === cidade)?.label}
           </span>
         </button>
 

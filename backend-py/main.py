@@ -2908,9 +2908,20 @@ def validar_registro_ixc(tipo: str, source_id: int, nome: str = ""):
 
 
 @app.get("/api/ixc/ajustes-manuais")
-def ixc_ajustes_manuais():
+def ixc_ajustes_manuais(origem: str = "todas"):
     """Trilha de auditoria dos ajustes manuais da dashboard:
-    registros ocultados, validados como instalação e inseridos manualmente."""
+    registros ocultados, validados como instalação e inseridos manualmente.
+
+    origem filtra por cidade; 'todas' mostra tudo. Registros sem cidade
+    identificável (ex.: fora do espelho local) aparecem em qualquer filtro.
+    """
+    if origem == "todas":
+        cidade_ids = None
+    elif origem in IXC_CIDADES:
+        cidade_ids = {IXC_CIDADES[origem]}
+    else:
+        raise HTTPException(status_code=400, detail=f"Origem desconhecida: {origem}")
+
     cidades_label = {v: k.replace("_", " ").title() for k, v in IXC_CIDADES.items()}
 
     conn = get_conn()
@@ -2954,6 +2965,9 @@ def ixc_ajustes_manuais():
     def _fmt(lista, campo_ts):
         out = []
         for r in lista:
+            # Filtro de cidade (registros sem cidade aparecem sempre)
+            if cidade_ids and r.get("cidade_ixc_id") and r["cidade_ixc_id"] not in cidade_ids:
+                continue
             ts = r.pop(campo_ts, None)
             out.append({
                 **r,
