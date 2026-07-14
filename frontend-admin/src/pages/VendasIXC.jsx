@@ -583,7 +583,8 @@ export default function VendasIXC() {
       {/* ══ LISTAS ══ */}
       <SecaoTitulo label={`Listas — ${MESES[mesFiltro]}/${anoFiltro}`} cor="#444" bg="#f0f0f0" />
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+      {/* Listas empilhadas (uma embaixo da outra) para melhor leitura */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem' }}>
 
         {/* ── Tabela de contratos ── */}
         <div className="card">
@@ -799,12 +800,12 @@ export default function VendasIXC() {
             <table>
               <thead>
                 <tr>
-                  <th>Data</th><th>Nome</th><th>Bairro</th><th>Fone</th><th></th>
+                  <th>Data</th><th>Nome</th><th>Bairro</th><th>Fone</th><th>Motivo</th><th></th>
                 </tr>
               </thead>
               <tbody>
                 {cancMesFilt.length === 0
-                  ? <tr><td colSpan={5} className="sem-resultado">Nenhum cancelamento neste mês.</td></tr>
+                  ? <tr><td colSpan={6} className="sem-resultado">Nenhum cancelamento neste mês.</td></tr>
                   : cancMesFilt.map((r, i) => (
                     <tr key={i} style={r.manual ? { background: '#fff9f9' } : undefined}>
                       <td style={{ whiteSpace: 'nowrap' }}>{r.data_abertura}</td>
@@ -814,6 +815,12 @@ export default function VendasIXC() {
                       </td>
                       <td>{r.bairro || '—'}</td>
                       <td>{r.fone || '—'}</td>
+                      <td title={r.motivo || ''} style={{
+                        fontSize: '.78rem', color: '#7d4b4b', maxWidth: 280,
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                      }}>
+                        {r.motivo || '—'}
+                      </td>
                       <td style={{ textAlign: 'center', width: 32 }}>
                         <BtnLixeira onClick={() => r.manual
                           ? excluirCancelamento(r.source_id)

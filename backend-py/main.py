@@ -2802,7 +2802,8 @@ def ixc_cancelamentos_ixc(origem: str = "borda_mata"):
                         to_char(o.data_fechamento, 'YYYY-MM-DD') AS data_fechamento,
                         cl.nome,
                         cl.bairro,
-                        cl.fone
+                        cl.fone,
+                        o.mensagem
                     FROM ixc_os o
                     LEFT JOIN ixc_clientes cl ON cl.ixc_id = o.id_cliente
                     WHERE o.id_cidade = ANY(%s)
@@ -2825,13 +2826,22 @@ def ixc_cancelamentos_ixc(origem: str = "borda_mata"):
                         NULL               AS data_fechamento,
                         nome,
                         bairro,
-                        fone
+                        fone,
+                        obs                AS mensagem
                     FROM cancelamentos_manuais
                     WHERE cidade_ixc_id = ANY(%s)
                 ) t
                 ORDER BY data_abertura DESC
             """, (cidade_ids, ID_REVERSAO_CANCELAMENTO, cidade_ids))
             rows = [dict(r) for r in cur.fetchall()]
+
+            # Motivo do cancelamento: a OS traz um texto padrão do processo;
+            # o que interessa vem após "Mensagem do cliente:"
+            for r in rows:
+                msg = (r.pop("mensagem", None) or "").strip()
+                if "Mensagem do cliente:" in msg:
+                    msg = msg.split("Mensagem do cliente:", 1)[1].strip()
+                r["motivo"] = msg
 
             por_assunto: dict = {}
             for r in rows:
