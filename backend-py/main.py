@@ -2907,6 +2907,104 @@ def validar_registro_ixc(tipo: str, source_id: int, nome: str = ""):
     return {"message": "Registro validado como nova instalação."}
 
 
+@app.get("/api/ixc/ajustes-manuais")
+def ixc_ajustes_manuais():
+    """Trilha de auditoria dos ajustes manuais da dashboard:
+    registros ocultados, validados como instalação e inseridos manualmente."""
+    cidades_label = {v: k.replace("_", " ").title() for k, v in IXC_CIDADES.items()}
+
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT oc.tipo, oc.source_id, oc.nome, oc.ocultado_em,
+                       COALESCE(ct.data_ativacao::text, to_char(o.data_abertura, 'YYYY-MM-DD')) AS data,
+                       COALESCE(ct.cidade_ixc_id, o.id_cidade) AS cidade_ixc_id
+                FROM ixc_registros_ocultos oc
+                LEFT JOIN ixc_contratos ct ON oc.tipo = 'contrato' AND ct.ixc_contrato_id = oc.source_id
+                LEFT JOIN ixc_os o         ON oc.tipo = 'os'       AND o.ixc_os_id = oc.source_id
+                ORDER BY oc.ocultado_em DESC
+            """)
+            ocultados = [dict(r) for r in cur.fetchall()]
+
+            cur.execute("""
+                SELECT v.tipo, v.source_id, v.nome, v.validado_em,
+                       ct.data_ativacao::text AS data,
+                       ct.cidade_ixc_id
+                FROM ixc_registros_validados v
+                LEFT JOIN ixc_contratos ct ON v.tipo = 'contrato' AND ct.ixc_contrato_id = v.source_id
+                ORDER BY v.validado_em DESC
+            """)
+            validados = [dict(r) for r in cur.fetchall()]
+
+            cur.execute("""
+                SELECT id, nome, data_ativacao::text AS data, cidade_ixc_id, criado_em,
+                       'contrato' AS tipo
+                FROM contratos_manuais
+                UNION ALL
+                SELECT id, nome, data_abertura::text AS data, cidade_ixc_id, criado_em,
+                       'cancelamento' AS tipo
+                FROM cancelamentos_manuais
+                ORDER BY criado_em DESC
+            """)
+            inseridos = [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+    def _fmt(lista, campo_ts):
+        out = []
+        for r in lista:
+            ts = r.pop(campo_ts, None)
+            out.append({
+                **r,
+                "quando": ts.isoformat() if ts else None,
+                "cidade": cidades_label.get(r.get("cidade_ixc_id"), r.get("cidade_ixc_id") or "—"),
+            })
+        return out
+
+    return {
+        "ocultados": _fmt(ocultados, "ocultado_em"),
+        "validados": _fmt(validados, "validado_em"),
+        "inseridos": _fmt(inseridos, "criado_em"),
+    }
+
+
+@app.delete("/api/ixc/registros-ocultos/{tipo}/{source_id}")
+def restaurar_registro_oculto(tipo: str, source_id: int):
+    """Restaura um registro ocultado — ele volta à lista da dashboard."""
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM ixc_registros_ocultos WHERE tipo = %s AND source_id = %s",
+                (tipo, source_id),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Registro não encontrado")
+        conn.commit()
+    finally:
+        conn.close()
+    return {"message": "Registro restaurado."}
+
+
+@app.delete("/api/ixc/registros-validados/{tipo}/{source_id}")
+def desfazer_validacao(tipo: str, source_id: int):
+    """Desfaz uma validação manual — o registro volta a seguir a regra automática."""
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM ixc_registros_validados WHERE tipo = %s AND source_id = %s",
+                (tipo, source_id),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Registro não encontrado")
+        conn.commit()
+    finally:
+        conn.close()
+    return {"message": "Validação desfeita."}
+
+
 @app.post("/api/ixc/contratos-manuais")
 def criar_contrato_manual(body: dict):
     """Insere um contrato manualmente (não vai ao IXC, não é removido pelo sync)."""

@@ -262,6 +262,57 @@ export default function VendasIXC() {
     }
   }
 
+  // ── Trilha de ajustes manuais (ocultados / validados / inseridos) ──
+  const [mostrarAjustes, setMostrarAjustes] = useState(false)
+  const [ajustes, setAjustes] = useState(null)
+
+  const carregarAjustes = async () => {
+    try {
+      const r = await axios.get('/api/ixc/ajustes-manuais')
+      setAjustes(r.data)
+    } catch(err) {
+      setErroGlobal(err.response?.data?.detail || err.message)
+    }
+  }
+
+  const toggleAjustes = () => {
+    const abrir = !mostrarAjustes
+    setMostrarAjustes(abrir)
+    if (abrir) carregarAjustes()
+  }
+
+  const restaurarOculto = async (tipo, source_id, nome) => {
+    if (!window.confirm(`Restaurar "${nome || 'este registro'}"? Ele volta à lista da dashboard.`)) return
+    try {
+      await axios.delete(`/api/ixc/registros-ocultos/${tipo}/${source_id}`)
+      carregarAjustes(); carregarV(cidade); carregarC(cidade)
+    } catch(err) {
+      setErroGlobal(err.response?.data?.detail || err.message)
+    }
+  }
+
+  const desfazerValidacao = async (tipo, source_id, nome) => {
+    if (!window.confirm(`Desfazer a validação de "${nome || 'este registro'}"? Ele volta a seguir a regra automática.`)) return
+    try {
+      await axios.delete(`/api/ixc/registros-validados/${tipo}/${source_id}`)
+      carregarAjustes(); carregarV(cidade)
+    } catch(err) {
+      setErroGlobal(err.response?.data?.detail || err.message)
+    }
+  }
+
+  const excluirInserido = async (tipo, id, nome) => {
+    if (!window.confirm(`Remover o registro manual "${nome || ''}"?`)) return
+    try {
+      await axios.delete(tipo === 'contrato'
+        ? `/api/ixc/contratos-manuais/${id}`
+        : `/api/ixc/cancelamentos-manuais/${id}`)
+      carregarAjustes(); carregarV(cidade); carregarC(cidade)
+    } catch(err) {
+      setErroGlobal(err.response?.data?.detail || err.message)
+    }
+  }
+
   // Valida manualmente um contrato desconsiderado como nova instalação
   // (passa por cima da regra automática e sobe para a lista de novos contratos)
   const validarIXC = async (tipo, source_id, nome) => {
@@ -736,6 +787,91 @@ export default function VendasIXC() {
           </div>
         </div>
 
+      </div>
+
+      {/* ── Trilha de ajustes manuais ── */}
+      <div className="card" style={{ marginTop: '1rem' }}>
+        <button
+          onClick={toggleAjustes}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+            fontSize: '.95rem', color: '#3D1278', fontFamily: 'inherit', fontWeight: 700,
+          }}
+        >
+          {mostrarAjustes ? '▾' : '▸'} ⚙ Ajustes manuais
+          <span style={{ fontWeight: 400, fontSize: '.8rem', color: '#888', marginLeft: 8 }}>
+            inseridos, validados e removidos manualmente (todas as cidades)
+          </span>
+        </button>
+
+        {mostrarAjustes && !ajustes && <div style={{ padding: '1rem', color: '#888' }}>Carregando…</div>}
+
+        {mostrarAjustes && ajustes && (
+          <div style={{ display: 'grid', gap: '1rem', marginTop: '1rem' }}>
+            {[
+              {
+                titulo: `➕ Inseridos manualmente (${ajustes.inseridos.length})`,
+                cor: '#27ae60',
+                linhas: ajustes.inseridos,
+                acao: (r) => excluirInserido(r.tipo, r.id, r.nome),
+                acaoLabel: '🗑 Remover',
+              },
+              {
+                titulo: `✔ Validados como nova instalação (${ajustes.validados.length})`,
+                cor: '#1a7a44',
+                linhas: ajustes.validados,
+                acao: (r) => desfazerValidacao(r.tipo, r.source_id, r.nome),
+                acaoLabel: '↩ Desfazer',
+              },
+              {
+                titulo: `🗑 Removidos da lista (${ajustes.ocultados.length})`,
+                cor: '#c0392b',
+                linhas: ajustes.ocultados,
+                acao: (r) => restaurarOculto(r.tipo, r.source_id, r.nome),
+                acaoLabel: '↩ Restaurar',
+              },
+            ].map(sec => (
+              <div key={sec.titulo}>
+                <div style={{ fontSize: '.85rem', fontWeight: 700, color: sec.cor, marginBottom: '.4rem' }}>
+                  {sec.titulo}
+                </div>
+                {sec.linhas.length === 0 ? (
+                  <div style={{ fontSize: '.8rem', color: '#aaa', paddingLeft: '.2rem' }}>Nenhum registro.</div>
+                ) : (
+                  <div className="table-wrapper" style={{ maxHeight: 200 }}>
+                    <table>
+                      <thead>
+                        <tr><th>Data</th><th>Nome</th><th>Tipo</th><th>Cidade</th><th>Quando</th><th></th></tr>
+                      </thead>
+                      <tbody>
+                        {sec.linhas.map((r, i) => (
+                          <tr key={i}>
+                            <td style={{ whiteSpace: 'nowrap' }}>{r.data || '—'}</td>
+                            <td>{r.nome || '—'}</td>
+                            <td style={{ fontSize: '.78rem' }}>{r.tipo === 'os' ? 'cancelamento' : r.tipo}</td>
+                            <td style={{ fontSize: '.78rem' }}>{r.cidade}</td>
+                            <td style={{ whiteSpace: 'nowrap', fontSize: '.78rem', color: '#888' }}>
+                              {r.quando ? new Date(r.quando).toLocaleString('pt-BR') : '—'}
+                            </td>
+                            <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                              <button
+                                onClick={() => sec.acao(r)}
+                                style={{ background: 'none', border: '1px solid #d5cbe6', borderRadius: 6,
+                                  cursor: 'pointer', fontSize: '.75rem', padding: '.15rem .5rem',
+                                  color: '#4a3670', fontFamily: 'inherit' }}>
+                                {sec.acaoLabel}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
