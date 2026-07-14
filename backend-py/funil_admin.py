@@ -172,6 +172,7 @@ def enviar_whatsapp_leads(body: EnvioLeadsBody):
                         """,
                         (lead_id,),
                     )
+                db.registrar_mensagem(conn, phone, texto)
                 conn.commit()
             except Exception as e:
                 print(f"[WHATSAPP] Falha ao enviar para {phone}: {e}")

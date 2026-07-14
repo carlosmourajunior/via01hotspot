@@ -36,6 +36,23 @@ function BadgeStatus({ status }) {
   )
 }
 
+// Badge "Enviado" com a mensagem no hover (tooltip nativo do navegador)
+function BadgeEnvio({ mensagem, quando }) {
+  if (!mensagem) return <span style={{ color: '#b9aed0', fontSize: '.78rem' }}>—</span>
+  const data = quando ? new Date(quando).toLocaleDateString('pt-BR') : ''
+  return (
+    <span
+      title={`Mensagem enviada${data ? ` em ${data}` : ''}:\n\n${mensagem}`}
+      style={{
+        padding: '1px 7px', borderRadius: 10, fontSize: '.75rem', fontWeight: 600,
+        background: '#e3f0fb', color: '#1a5276', whiteSpace: 'nowrap', cursor: 'help',
+      }}
+    >
+      ✉️ Enviado {data}
+    </span>
+  )
+}
+
 function ModalWhatsApp({ total, enviando, onEnviar, onFechar }) {
   const [msg, setMsg] = useState('')
   return (
@@ -243,6 +260,7 @@ export default function Guests() {
               <th>Nome</th>
               <th>Telefone</th>
               <th>Classificação</th>
+              <th>Contato</th>
               <th>MAC</th>
               <th>Data/Hora</th>
             </tr>
@@ -261,12 +279,13 @@ export default function Guests() {
                 <td>{g.name || '—'}</td>
                 <td style={{ whiteSpace: 'nowrap' }}>{formatPhone(g.phone)}</td>
                 <td><BadgeStatus status={statusDe(g)} /></td>
+                <td><BadgeEnvio mensagem={g.ultima_mensagem} quando={g.ultimo_envio} /></td>
                 <td style={{ fontFamily: 'monospace', fontSize: '.8rem' }}>{g.mac}</td>
                 <td style={{ whiteSpace: 'nowrap' }}>{new Date(g.connected_at).toLocaleString('pt-BR')}</td>
               </tr>
             ))}
             {!loading && visiveis.length === 0 && (
-              <tr><td colSpan={6} className="sem-resultado">Nenhum acesso registrado.</td></tr>
+              <tr><td colSpan={7} className="sem-resultado">Nenhum acesso registrado.</td></tr>
             )}
           </tbody>
         </table>

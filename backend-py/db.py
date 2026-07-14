@@ -44,6 +44,37 @@ CREATE TABLE IF NOT EXISTS hotspot_leads (
 
 ETAPAS_FUNIL = ("novo", "contatado", "respondeu", "quente", "frio", "convertido")
 
+# Histórico de mensagens WhatsApp enviadas (phone normalizado, sem o 55)
+DDL_HOTSPOT_MENSAGENS = """
+CREATE TABLE IF NOT EXISTS hotspot_mensagens (
+    id         SERIAL PRIMARY KEY,
+    phone      TEXT NOT NULL,
+    message    TEXT NOT NULL,
+    enviado_em TIMESTAMPTZ DEFAULT NOW()
+);
+"""
+
+
+def registrar_mensagem(conn, phone: str, message: str):
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO hotspot_mensagens (phone, message) VALUES (%s, %s)",
+            (normalizar_fone(phone), message),
+        )
+
+
+def ultimas_mensagens(conn) -> dict:
+    """Última mensagem enviada por telefone: {phone_normalizado: (message, enviado_em)}."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT DISTINCT ON (phone) phone, message, enviado_em
+            FROM hotspot_mensagens
+            ORDER BY phone, enviado_em DESC
+            """
+        )
+        return {r[0]: (r[1], r[2]) for r in cur.fetchall()}
+
 
 def init_hotspot_tables():
     conn = get_conn()
@@ -53,6 +84,8 @@ def init_hotspot_tables():
             cur.execute("ALTER TABLE hotspot_guests ADD COLUMN IF NOT EXISTS name TEXT")
             cur.execute("ALTER TABLE hotspot_guests ADD COLUMN IF NOT EXISTS client_status TEXT")
             cur.execute(DDL_HOTSPOT_LEADS)
+            cur.execute(DDL_HOTSPOT_MENSAGENS)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_hotspot_msgs_phone ON hotspot_mensagens (phone, enviado_em DESC)")
         conn.commit()
     finally:
         conn.close()

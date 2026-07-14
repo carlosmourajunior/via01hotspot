@@ -24,9 +24,20 @@ def listar_guests():
                 """
             )
             rows = cur.fetchall()
+        msgs = db.ultimas_mensagens(conn)
     finally:
         conn.close()
-    return [{**r, "connected_at": r["connected_at"].isoformat()} for r in rows]
+
+    resultado = []
+    for r in rows:
+        msg = msgs.get(db.normalizar_fone(r["phone"]))
+        resultado.append({
+            **r,
+            "connected_at": r["connected_at"].isoformat(),
+            "ultima_mensagem": msg[0] if msg else None,
+            "ultimo_envio": msg[1].isoformat() if msg else None,
+        })
+    return resultado
 
 
 @router.post("/api/guests/reclassificar")
@@ -127,7 +138,7 @@ def enviar_whatsapp_guests(body: EnvioWhatsAppBody):
         try:
             evolution.send_text(phone, texto)
             enviados += 1
-            # Reflete o contato no funil de vendas
+            # Reflete o contato no funil de vendas e guarda a mensagem no histórico
             conn2 = db.get_conn()
             try:
                 with conn2.cursor() as cur:
@@ -140,6 +151,7 @@ def enviar_whatsapp_guests(body: EnvioWhatsAppBody):
                         """,
                         (db.normalizar_fone(phone),),
                     )
+                db.registrar_mensagem(conn2, phone, texto)
                 conn2.commit()
             finally:
                 conn2.close()
