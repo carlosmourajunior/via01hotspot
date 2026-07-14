@@ -3160,7 +3160,15 @@ def ixc_vendas(origem: str = "borda_mata"):
                         EXISTS (
                             SELECT 1 FROM ixc_registros_validados v
                             WHERE v.tipo = 'contrato' AND v.source_id = ct.ixc_contrato_id
-                        ) AS validado
+                        ) AS validado,
+                        -- Ponto adicional: cliente antigo com login novo criado
+                        -- junto deste contrato (novo ponto = novo login)
+                        EXISTS (
+                            SELECT 1 FROM ixc_logins lg
+                            WHERE lg.id_contrato = ct.ixc_contrato_id
+                              AND lg.data_criacao BETWEEN ct.data_ativacao - INTERVAL '30 days'
+                                                      AND ct.data_ativacao + INTERVAL '60 days'
+                        ) AS login_novo
                     FROM ixc_contratos ct
                     LEFT JOIN ixc_clientes cl ON cl.ixc_id = ct.id_cliente
                     WHERE ct.cidade_ixc_id = ANY(%s)
@@ -3184,7 +3192,8 @@ def ixc_vendas(origem: str = "borda_mata"):
                         'S'                AS cliente_ativo,
                         TRUE               AS cadastro_novo,
                         TRUE               AS tem_os_instalacao,
-                        FALSE              AS validado
+                        FALSE              AS validado,
+                        FALSE              AS login_novo
                     FROM contratos_manuais
                     WHERE cidade_ixc_id = ANY(%s)
                 ) t
@@ -3219,13 +3228,16 @@ def ixc_vendas(origem: str = "borda_mata"):
         da = r.get("data_ativacao")
         cadastro_novo = r.pop("cadastro_novo", True)
         tem_os = r.pop("tem_os_instalacao", True)
+        login_novo = r.pop("login_novo", False)
         r["data_ativacao"] = str(da) if da else ""
+        # Cliente antigo que contratou mais um ponto: login novo neste contrato
+        r["ponto_adicional"] = bool(not cadastro_novo and login_novo and not r["manual"])
 
         motivo = None
         if not r["manual"] and not r.get("validado"):
-            if not cadastro_novo:
-                motivo = "Cadastro antigo — possível troca de titularidade"
-            elif os_min and da and da >= os_min and not tem_os:
+            if not cadastro_novo and not login_novo:
+                motivo = "Cadastro antigo sem login novo — possível troca de titularidade"
+            elif cadastro_novo and os_min and da and da >= os_min and not tem_os:
                 motivo = "Sem OS de instalação vinculada"
 
         if motivo:

@@ -62,6 +62,17 @@ function BadgeValidado() {
   )
 }
 
+function BadgePontoAdicional() {
+  return (
+    <span title="Cliente antigo que contratou mais um ponto (login novo criado junto deste contrato)" style={{
+      padding: '1px 6px', borderRadius: 8, fontSize: '.7rem', fontWeight: 700,
+      background: '#e3f0fb', color: '#1a5276', marginLeft: 5, verticalAlign: 'middle',
+    }}>
+      Ponto adicional
+    </span>
+  )
+}
+
 function BtnLixeira({ onClick }) {
   return (
     <button onClick={onClick} title="Remover da lista"
@@ -639,6 +650,7 @@ export default function VendasIXC() {
                         {r.nome || '—'}
                         {r.manual && <BadgeManual />}
                         {r.validado && <BadgeValidado />}
+                        {r.ponto_adicional && !r.validado && <BadgePontoAdicional />}
                       </td>
                       <td>{r.bairro || '—'}</td>
                       <td><BadgeAtivo ativo={r.cliente_ativo} /></td>
