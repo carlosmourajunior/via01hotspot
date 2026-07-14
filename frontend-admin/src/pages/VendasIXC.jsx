@@ -11,6 +11,7 @@ const MESES_ABREV = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out'
 const ANO_ATUAL   = new Date().getFullYear()
 
 const CIDADES = [
+  { id: 'todas',         label: '🏢 Via01 — Total' },
   { id: 'borda_mata',    label: 'Borda da Mata' },
   { id: 'ouro_fino',     label: 'Ouro Fino' },
   { id: 'inconfidentes', label: 'Inconfidentes' },
@@ -493,15 +494,17 @@ export default function VendasIXC() {
             <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
               <input className="filtro-input" type="text" placeholder="Buscar..."
                 value={buscaVendas} onChange={e => setBuscaVendas(e.target.value)} style={{ minWidth: 110 }} />
-              <button
-                onClick={() => { setAddVendaOpen(v => !v); setFormErroV(null) }}
-                style={{
-                  padding: '0.3rem 0.65rem', fontWeight: 700, fontSize: '.83rem',
-                  border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
-                  background: addVendaOpen ? '#888' : COR_VENDAS, color: '#fff',
-                }}>
-                {addVendaOpen ? '✕ Fechar' : '+ Inserir'}
-              </button>
+              {cidade !== 'todas' && (
+                <button
+                  onClick={() => { setAddVendaOpen(v => !v); setFormErroV(null) }}
+                  style={{
+                    padding: '0.3rem 0.65rem', fontWeight: 700, fontSize: '.83rem',
+                    border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+                    background: addVendaOpen ? '#888' : COR_VENDAS, color: '#fff',
+                  }}>
+                  {addVendaOpen ? '✕ Fechar' : '+ Inserir'}
+                </button>
+              )}
             </div>
           </div>
 
@@ -621,15 +624,17 @@ export default function VendasIXC() {
             <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
               <input className="filtro-input" type="text" placeholder="Buscar..."
                 value={buscaCanc} onChange={e => setBuscaCanc(e.target.value)} style={{ minWidth: 110 }} />
-              <button
-                onClick={() => { setAddCancOpen(v => !v); setFormErroC(null) }}
-                style={{
-                  padding: '0.3rem 0.65rem', fontWeight: 700, fontSize: '.83rem',
-                  border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
-                  background: addCancOpen ? '#888' : COR_CANC, color: '#fff',
-                }}>
-                {addCancOpen ? '✕ Fechar' : '+ Inserir'}
-              </button>
+              {cidade !== 'todas' && (
+                <button
+                  onClick={() => { setAddCancOpen(v => !v); setFormErroC(null) }}
+                  style={{
+                    padding: '0.3rem 0.65rem', fontWeight: 700, fontSize: '.83rem',
+                    border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+                    background: addCancOpen ? '#888' : COR_CANC, color: '#fff',
+                  }}>
+                  {addCancOpen ? '✕ Fechar' : '+ Inserir'}
+                </button>
+              )}
             </div>
           </div>
 

@@ -2761,11 +2761,17 @@ def ixc_debug_cancelamentos(origem: str = "borda_mata"):
 
 @app.get("/api/ixc/cancelamentos-ixc")
 def ixc_cancelamentos_ixc(origem: str = "borda_mata"):
-    """Retorna cancelamentos IXC por cidade (OS id=26, status F), incluindo registros manuais."""
-    if origem not in IXC_CIDADES:
+    """Retorna cancelamentos IXC por cidade (OS id=26, status F), incluindo registros manuais.
+
+    origem='todas' agrega as três cidades (visão da empresa).
+    """
+    if origem == "todas":
+        cidade_ids = list(IXC_CIDADES.values())
+    elif origem in IXC_CIDADES:
+        cidade_ids = [IXC_CIDADES[origem]]
+    else:
         raise HTTPException(status_code=400, detail=f"Origem desconhecida: {origem}")
 
-    cidade_id = IXC_CIDADES[origem]
     ID_REVERSAO_CANCELAMENTO = 26
 
     conn = get_conn()
@@ -2786,7 +2792,7 @@ def ixc_cancelamentos_ixc(origem: str = "borda_mata"):
                         cl.fone
                     FROM ixc_os o
                     LEFT JOIN ixc_clientes cl ON cl.ixc_id = o.id_cliente
-                    WHERE o.id_cidade = %s
+                    WHERE o.id_cidade = ANY(%s)
                       AND o.id_assunto = %s
                       AND o.status = 'F'
                       AND NOT EXISTS (
@@ -2808,10 +2814,10 @@ def ixc_cancelamentos_ixc(origem: str = "borda_mata"):
                         bairro,
                         fone
                     FROM cancelamentos_manuais
-                    WHERE cidade_ixc_id = %s
+                    WHERE cidade_ixc_id = ANY(%s)
                 ) t
                 ORDER BY data_abertura DESC
-            """, (cidade_id, ID_REVERSAO_CANCELAMENTO, cidade_id))
+            """, (cidade_ids, ID_REVERSAO_CANCELAMENTO, cidade_ids))
             rows = [dict(r) for r in cur.fetchall()]
 
             por_assunto: dict = {}
@@ -2824,8 +2830,8 @@ def ixc_cancelamentos_ixc(origem: str = "borda_mata"):
             )
 
             cur.execute(
-                "SELECT MAX(synced_at) AS ts FROM ixc_os WHERE id_cidade = %s AND id_assunto = %s",
-                (cidade_id, ID_REVERSAO_CANCELAMENTO)
+                "SELECT MAX(synced_at) AS ts FROM ixc_os WHERE id_cidade = ANY(%s) AND id_assunto = %s",
+                (cidade_ids, ID_REVERSAO_CANCELAMENTO)
             )
             last_sync_row = cur.fetchone()
             last_sync = last_sync_row["ts"] if last_sync_row else None
@@ -2967,11 +2973,16 @@ def excluir_cancelamento_manual(mid: int):
 
 @app.get("/api/ixc/vendas")
 def ixc_vendas(origem: str = "borda_mata"):
-    """Retorna novos contratos IXC por cidade (data_ativacao), incluindo registros manuais."""
-    if origem not in IXC_CIDADES:
-        raise HTTPException(status_code=400, detail=f"Origem desconhecida: {origem}")
+    """Retorna novos contratos IXC por cidade (data_ativacao), incluindo registros manuais.
 
-    cidade_id = IXC_CIDADES[origem]
+    origem='todas' agrega as três cidades (visão da empresa).
+    """
+    if origem == "todas":
+        cidade_ids = list(IXC_CIDADES.values())
+    elif origem in IXC_CIDADES:
+        cidade_ids = [IXC_CIDADES[origem]]
+    else:
+        raise HTTPException(status_code=400, detail=f"Origem desconhecida: {origem}")
 
     conn = get_conn()
     try:
@@ -3000,7 +3011,7 @@ def ixc_vendas(origem: str = "borda_mata"):
                         ) AS tem_os_instalacao
                     FROM ixc_contratos ct
                     LEFT JOIN ixc_clientes cl ON cl.ixc_id = ct.id_cliente
-                    WHERE ct.cidade_ixc_id = %s
+                    WHERE ct.cidade_ixc_id = ANY(%s)
                       AND cl.ativo = 'S'
                       AND NOT EXISTS (
                           SELECT 1 FROM ixc_registros_ocultos oc
@@ -3022,15 +3033,15 @@ def ixc_vendas(origem: str = "borda_mata"):
                         TRUE               AS cadastro_novo,
                         TRUE               AS tem_os_instalacao
                     FROM contratos_manuais
-                    WHERE cidade_ixc_id = %s
+                    WHERE cidade_ixc_id = ANY(%s)
                 ) t
                 ORDER BY data_ativacao DESC
-            """, (cidade_id, cidade_id))
+            """, (cidade_ids, cidade_ids))
             rows = [dict(r) for r in cur.fetchall()]
 
             cur.execute(
-                "SELECT MAX(synced_at) AS ts FROM ixc_contratos WHERE cidade_ixc_id = %s",
-                (cidade_id,)
+                "SELECT MAX(synced_at) AS ts FROM ixc_contratos WHERE cidade_ixc_id = ANY(%s)",
+                (cidade_ids,)
             )
             last_sync_row = cur.fetchone()
             last_sync = last_sync_row["ts"] if last_sync_row else None
@@ -3043,8 +3054,8 @@ def ixc_vendas(origem: str = "borda_mata"):
 
             # Base atual de contratos ativos (status A) — bate com o número do IXC
             cur.execute(
-                "SELECT COUNT(*) AS n FROM ixc_contratos WHERE cidade_ixc_id = %s AND status = 'A'",
-                (cidade_id,)
+                "SELECT COUNT(*) AS n FROM ixc_contratos WHERE cidade_ixc_id = ANY(%s) AND status = 'A'",
+                (cidade_ids,)
             )
             contratos_ativos = cur.fetchone()["n"]
     finally:
