@@ -13,7 +13,26 @@ function BadgeAtivo({ ativo }) {
     : <span style={{ padding: '1px 8px', borderRadius: 10, fontSize: '.75rem', fontWeight: 600, background: '#fde8e8', color: '#7d1010' }}>Inativo</span>
 }
 
-const FORM_VAZIO = { username: '', nome: '', senha: '', admin: false }
+const FORM_VAZIO = { username: '', nome: '', senha: '', admin: false, funcoes: [] }
+
+const FUNCOES = [
+  { id: 'vendas',     label: 'Vendas',     bg: '#f3e8fd', cor: '#6c3483' },
+  { id: 'financeiro', label: 'Financeiro', bg: '#e0f5eb', cor: '#1a7a44' },
+  { id: 'suporte',    label: 'Suporte',    bg: '#e3f0fb', cor: '#1a5276' },
+]
+
+function BadgeFuncao({ id }) {
+  const f = FUNCOES.find(x => x.id === id)
+  if (!f) return null
+  return (
+    <span style={{
+      padding: '1px 8px', borderRadius: 10, fontSize: '.72rem', fontWeight: 600,
+      background: f.bg, color: f.cor, marginRight: 4,
+    }}>
+      {f.label}
+    </span>
+  )
+}
 
 export default function Admin({ user }) {
   const [usuarios,  setUsuarios]  = useState([])
@@ -73,6 +92,16 @@ export default function Admin({ user }) {
     } catch (err) { flash(err.response?.data?.detail || err.message, false) }
   }
 
+  const toggleFuncao = async (u, funcao) => {
+    const atuais = u.funcoes || []
+    const novas = atuais.includes(funcao) ? atuais.filter(f => f !== funcao) : [...atuais, funcao]
+    try {
+      await axios.patch(`/api/usuarios/${u.id}`, { funcoes: novas })
+      flash(`Funções de ${u.username} atualizadas.`)
+      carregar()
+    } catch (err) { flash(err.response?.data?.detail || err.message, false) }
+  }
+
   const excluir = async (u) => {
     if (!window.confirm(`Excluir o usuário "${u.username}"? Esta ação não pode ser desfeita.`)) return
     try {
@@ -126,11 +155,24 @@ export default function Admin({ user }) {
               onChange={e => setForm(f => ({ ...f, senha: e.target.value }))}
               placeholder="mínimo 4 caracteres" autoComplete="new-password" />
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', paddingBottom: '0.1rem' }}>
-            <input type="checkbox" id="chk-admin" checked={form.admin}
-              onChange={e => setForm(f => ({ ...f, admin: e.target.checked }))}
-              style={{ width: 16, height: 16, cursor: 'pointer' }} />
-            <label htmlFor="chk-admin" style={{ fontSize: '.87rem', cursor: 'pointer', userSelect: 'none' }}>Admin</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', paddingBottom: '0.1rem', flexWrap: 'wrap' }}>
+            {FUNCOES.map(fn => (
+              <span key={fn.id} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                <input type="checkbox" id={`chk-${fn.id}`} checked={form.funcoes.includes(fn.id)}
+                  onChange={e => setForm(f => ({
+                    ...f,
+                    funcoes: e.target.checked ? [...f.funcoes, fn.id] : f.funcoes.filter(x => x !== fn.id),
+                  }))}
+                  style={{ width: 15, height: 15, cursor: 'pointer' }} />
+                <label htmlFor={`chk-${fn.id}`} style={{ fontSize: '.83rem', cursor: 'pointer', userSelect: 'none' }}>{fn.label}</label>
+              </span>
+            ))}
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+              <input type="checkbox" id="chk-admin" checked={form.admin}
+                onChange={e => setForm(f => ({ ...f, admin: e.target.checked }))}
+                style={{ width: 15, height: 15, cursor: 'pointer' }} />
+              <label htmlFor="chk-admin" style={{ fontSize: '.83rem', cursor: 'pointer', userSelect: 'none', fontWeight: 700 }}>Admin</label>
+            </span>
           </div>
           <button type="submit" disabled={salvando}
             style={{ padding: '0.55rem 1.1rem', background: '#27ae60', color: '#fff', border: 'none',
@@ -158,6 +200,7 @@ export default function Admin({ user }) {
                     <th>Username</th>
                     <th>Nome</th>
                     <th>Permissão</th>
+                    <th>Funções</th>
                     <th>Status</th>
                     <th style={{ textAlign: 'center' }}>Ações</th>
                   </tr>
@@ -169,6 +212,27 @@ export default function Admin({ user }) {
                       <td style={{ fontWeight: 600 }}>{u.username}</td>
                       <td>{u.nome || '—'}</td>
                       <td><BadgeAdmin admin={u.admin} /></td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {FUNCOES.map(fn => {
+                          const tem = (u.funcoes || []).includes(fn.id)
+                          return (
+                            <span
+                              key={fn.id}
+                              onClick={() => toggleFuncao(u, fn.id)}
+                              title={tem ? `Remover função ${fn.label}` : `Atribuir função ${fn.label}`}
+                              style={{
+                                padding: '1px 8px', borderRadius: 10, fontSize: '.72rem', fontWeight: 600,
+                                marginRight: 4, cursor: 'pointer', userSelect: 'none',
+                                background: tem ? fn.bg : '#f5f5f5',
+                                color: tem ? fn.cor : '#bbb',
+                                border: tem ? `1px solid ${fn.cor}33` : '1px dashed #ddd',
+                              }}
+                            >
+                              {fn.label}
+                            </span>
+                          )
+                        })}
+                      </td>
                       <td><BadgeAtivo ativo={u.ativo} /></td>
                       <td>
                         <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>

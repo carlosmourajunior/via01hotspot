@@ -36,6 +36,9 @@ SECRET_KEY = environ.get("SECRET_KEY", "via01-dev-secret-change-in-production")
 ALGORITHM  = "HS256"
 TOKEN_EXPIRE_HOURS = 8
 
+# Funções atribuíveis aos usuários (RBAC); a flag admin dá acesso total
+FUNCOES_VALIDAS = ("vendas", "financeiro", "suporte")
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 class LoginRequest(BaseModel):
@@ -693,6 +696,8 @@ def init_db():
             )
         """)
         cur.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS admin BOOLEAN DEFAULT FALSE")
+        # Funções do usuário (RBAC): abas/rotas visíveis conforme a função; admin vê tudo
+        cur.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS funcoes TEXT[] NOT NULL DEFAULT '{}'")
     conn.commit()
     conn.close()
 
@@ -1024,7 +1029,7 @@ def auth_login(body: LoginRequest):
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                "SELECT id, username, nome, senha, ativo, admin FROM usuarios WHERE username = %s",
+                "SELECT id, username, nome, senha, ativo, admin, funcoes FROM usuarios WHERE username = %s",
                 (body.username.strip(),),
             )
             user = cur.fetchone()
@@ -1036,9 +1041,11 @@ def auth_login(body: LoginRequest):
     if not pwd_context.verify(body.password, user["senha"]):
         raise HTTPException(status_code=401, detail="Usuário ou senha inválidos")
 
+    funcoes = user.get("funcoes") or []
     expires = datetime.utcnow() + timedelta(hours=TOKEN_EXPIRE_HOURS)
     token = jwt.encode(
-        {"sub": user["username"], "nome": user["nome"], "admin": bool(user["admin"]), "exp": expires},
+        {"sub": user["username"], "nome": user["nome"], "admin": bool(user["admin"]),
+         "funcoes": funcoes, "exp": expires},
         SECRET_KEY,
         algorithm=ALGORITHM,
     )
@@ -1046,6 +1053,7 @@ def auth_login(body: LoginRequest):
         "access_token": token, "token_type": "bearer",
         "nome": user["nome"], "username": user["username"],
         "admin": bool(user["admin"]),
+        "funcoes": funcoes,
     }
 
 
@@ -1058,6 +1066,7 @@ def auth_me(request: Request):
             "username": payload.get("sub"),
             "nome":     payload.get("nome"),
             "admin":    bool(payload.get("admin", False)),
+            "funcoes":  payload.get("funcoes", []),
         }
     except JWTError:
         raise HTTPException(status_code=401, detail="Token inválido")
@@ -1103,13 +1112,29 @@ def _require_admin(request: Request) -> dict:
     return payload
 
 
+def _validar_funcoes(body: dict):
+    """Extrai e valida a lista de funções do corpo; None se não enviada."""
+    if "funcoes" not in body:
+        return None
+    funcoes = body.get("funcoes") or []
+    if not isinstance(funcoes, list):
+        raise HTTPException(status_code=400, detail="funcoes deve ser uma lista")
+    invalidas = [f for f in funcoes if f not in FUNCOES_VALIDAS]
+    if invalidas:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Funções inválidas: {', '.join(invalidas)}. Use: {', '.join(FUNCOES_VALIDAS)}",
+        )
+    return sorted(set(funcoes))
+
+
 @app.get("/api/usuarios")
 def listar_usuarios(request: Request):
     _require_admin(request)
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT id, username, nome, ativo, admin FROM usuarios ORDER BY id")
+            cur.execute("SELECT id, username, nome, ativo, admin, funcoes FROM usuarios ORDER BY id")
             return [dict(r) for r in cur.fetchall()]
     finally:
         conn.close()
@@ -1122,6 +1147,7 @@ def criar_usuario(request: Request, body: dict):
     nome     = (body.get("nome")     or "").strip()
     senha    = (body.get("senha")    or "")
     is_admin = bool(body.get("admin", False))
+    funcoes  = _validar_funcoes(body) or []
     if not username or not senha:
         raise HTTPException(status_code=400, detail="username e senha são obrigatórios")
     if len(senha) < 4:
@@ -1131,11 +1157,13 @@ def criar_usuario(request: Request, body: dict):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO usuarios (username, nome, senha, admin) VALUES (%s, %s, %s, %s) RETURNING id",
-                (username, nome, senha_hash, is_admin),
+                "INSERT INTO usuarios (username, nome, senha, admin, funcoes) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+                (username, nome, senha_hash, is_admin, funcoes),
             )
             new_id = cur.fetchone()[0]
         conn.commit()
+    except HTTPException:
+        raise
     except Exception as e:
         conn.rollback()
         if "unique" in str(e).lower():
@@ -1143,7 +1171,7 @@ def criar_usuario(request: Request, body: dict):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
-    return {"id": new_id, "username": username, "nome": nome, "admin": is_admin}
+    return {"id": new_id, "username": username, "nome": nome, "admin": is_admin, "funcoes": funcoes}
 
 
 @app.patch("/api/usuarios/{uid}")
@@ -1164,6 +1192,9 @@ def atualizar_usuario(uid: int, request: Request, body: dict):
                 campos["ativo"] = bool(body["ativo"])
             if "admin" in body:
                 campos["admin"] = bool(body["admin"])
+            funcoes = _validar_funcoes(body)
+            if funcoes is not None:
+                campos["funcoes"] = funcoes
             if campos:
                 sets = ", ".join(f"{k} = %s" for k in campos)
                 cur.execute(f"UPDATE usuarios SET {sets} WHERE id = %s", (*campos.values(), uid))
