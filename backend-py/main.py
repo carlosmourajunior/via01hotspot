@@ -406,6 +406,56 @@ def _ixc_fetch_contratos(data_inicio: str = None) -> list:
     return todos
 
 
+def _ixc_fetch_areceber(atualizado_desde: str = None) -> list:
+    """Busca títulos de fn_areceber.
+
+    Com atualizado_desde ('YYYY-MM-DD HH:MM:SS'): só os alterados desde então
+    (incremental). Sem: a base completa.
+    """
+    todos: list = []
+    page = 1
+    rp = 1000
+    while True:
+        if atualizado_desde:
+            payload = {
+                "qtype": "ultima_atualizacao", "query": atualizado_desde, "oper": ">=",
+                "page": page, "rp": rp,
+                "sortname": "ultima_atualizacao", "sortorder": "asc",
+            }
+        else:
+            payload = {
+                "qtype": "id", "query": "1", "oper": ">=",
+                "page": page, "rp": rp,
+                "sortname": "id", "sortorder": "asc",
+            }
+        try:
+            resp = requests.post(
+                f"{IXC_BASE}/fn_areceber",
+                data=json.dumps(payload),
+                headers=_ixc_headers(),
+                timeout=120,
+                verify=True,
+            )
+            data = resp.json()
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Erro ao consultar fn_areceber: {e}")
+
+        if data.get("type") == "error":
+            raise HTTPException(status_code=502, detail=f"IXC fn_areceber: {data.get('message', 'erro desconhecido')}")
+
+        regs = data.get("registros", [])
+        if not regs:
+            break
+
+        todos.extend(regs)
+        total_api = int(data.get("total", 0))
+        if page >= (total_api + rp - 1) // rp:
+            break
+        page += 1
+
+    return todos
+
+
 # --------------- banco de dados ---------------
 
 def get_conn():
@@ -608,6 +658,30 @@ def init_db():
         cur.execute("CREATE INDEX IF NOT EXISTS idx_ixc_logins_data    ON ixc_logins (data_criacao)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_ixc_logins_cidade  ON ixc_logins (cidade_ixc_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_ixc_logins_cliente ON ixc_logins (id_cliente)")
+        # Espelho de contas a receber (fn_areceber) para a aba Financeiro
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ixc_areceber (
+                id                 SERIAL PRIMARY KEY,
+                ixc_id             INTEGER UNIQUE NOT NULL,
+                id_cliente         INTEGER,
+                id_contrato        INTEGER,
+                data_emissao       DATE,
+                data_vencimento    DATE,
+                pagamento_data     DATE,
+                valor              NUMERIC(12,2) DEFAULT 0,
+                valor_recebido     NUMERIC(12,2) DEFAULT 0,
+                valor_aberto       NUMERIC(12,2) DEFAULT 0,
+                valor_cancelado    NUMERIC(12,2) DEFAULT 0,
+                status             CHAR(1),
+                tipo_recebimento   TEXT,
+                recebido_via_pix   CHAR(1),
+                ultima_atualizacao TIMESTAMP,
+                synced_at          TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_areceber_venc    ON ixc_areceber (data_vencimento)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_areceber_cliente ON ixc_areceber (id_cliente)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_areceber_status  ON ixc_areceber (status)")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS usuarios (
                 id       SERIAL PRIMARY KEY,
@@ -674,10 +748,11 @@ async def _agendador_sync_ixc():
 
         print(f"[SYNC] Sincronização IXC agendada iniciando ({datetime.now(_TZ_LOCAL):%d/%m/%Y %H:%M})")
         etapas = [
-            ("clientes",  ixc_sync_clientes),
-            ("contratos", ixc_sync_contratos),
-            ("logins",    ixc_sync_logins),
-            ("os",        ixc_sync_os),
+            ("clientes",   ixc_sync_clientes),
+            ("contratos",  ixc_sync_contratos),
+            ("logins",     ixc_sync_logins),
+            ("os",         ixc_sync_os),
+            ("financeiro", ixc_sync_financeiro),
             ("reclassificar-guests", reclassificar_guests),
         ]
         for nome, fn in etapas:
@@ -2711,6 +2786,246 @@ def ixc_sync_logins(meses: int = 14):
         "inseridos":  inseridos,
         "atualizados": atualizados,
         "synced_at":  datetime.now().isoformat(),
+    }
+
+
+def _num(v) -> float:
+    try:
+        return float(v or 0)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _data(v):
+    s = (v or "")[:10]
+    return s if s and not s.startswith("0000") else None
+
+
+@app.post("/api/ixc/sync-financeiro")
+def ixc_sync_financeiro(dias: int = 2):
+    """Sincroniza fn_areceber (contas a receber) para o espelho local.
+
+    Incremental por ultima_atualizacao (últimos N dias). Com a tabela vazia
+    ou dias=0, sincroniza a base COMPLETA (~180k títulos, demora alguns minutos).
+    """
+    if not IXC_TOKEN:
+        raise HTTPException(status_code=503, detail="IXC_TOKEN não configurado.")
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM ixc_areceber")
+            existentes = cur.fetchone()[0]
+
+        from datetime import timedelta
+        if existentes == 0 or dias == 0:
+            desde = None
+        else:
+            desde = (datetime.now() - timedelta(days=dias)).strftime("%Y-%m-%d 00:00:00")
+
+        titulos = _ixc_fetch_areceber(desde)
+
+        linhas = []
+        for t in titulos:
+            try:
+                ixc_id = int(t.get("id", 0))
+            except (ValueError, TypeError):
+                continue
+            linhas.append((
+                ixc_id,
+                int(t.get("id_cliente") or 0) or None,
+                int(t.get("id_contrato") or 0) or None,
+                _data(t.get("data_emissao")),
+                _data(t.get("data_vencimento")),
+                _data(t.get("pagamento_data")),
+                _num(t.get("valor")),
+                _num(t.get("valor_recebido")),
+                _num(t.get("valor_aberto")),
+                _num(t.get("valor_cancelado")),
+                (t.get("status") or "")[:1],
+                t.get("tipo_recebimento") or "",
+                (t.get("recebido_via_pix") or "N")[:1],
+                (t.get("ultima_atualizacao") or None) or None,
+            ))
+
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_values(cur, """
+                INSERT INTO ixc_areceber
+                    (ixc_id, id_cliente, id_contrato, data_emissao, data_vencimento,
+                     pagamento_data, valor, valor_recebido, valor_aberto, valor_cancelado,
+                     status, tipo_recebimento, recebido_via_pix, ultima_atualizacao)
+                VALUES %s
+                ON CONFLICT (ixc_id) DO UPDATE SET
+                    id_cliente         = EXCLUDED.id_cliente,
+                    id_contrato        = EXCLUDED.id_contrato,
+                    data_emissao       = EXCLUDED.data_emissao,
+                    data_vencimento    = EXCLUDED.data_vencimento,
+                    pagamento_data     = EXCLUDED.pagamento_data,
+                    valor              = EXCLUDED.valor,
+                    valor_recebido     = EXCLUDED.valor_recebido,
+                    valor_aberto       = EXCLUDED.valor_aberto,
+                    valor_cancelado    = EXCLUDED.valor_cancelado,
+                    status             = EXCLUDED.status,
+                    tipo_recebimento   = EXCLUDED.tipo_recebimento,
+                    recebido_via_pix   = EXCLUDED.recebido_via_pix,
+                    ultima_atualizacao = EXCLUDED.ultima_atualizacao,
+                    synced_at          = NOW()
+            """, linhas, page_size=1000)
+        conn.commit()
+    finally:
+        conn.close()
+
+    modo = "completa" if desde is None else f"incremental ({dias} dia(s))"
+    return {
+        "message":  f"Sincronizados {len(linhas)} títulos do financeiro ({modo}).",
+        "total":    len(linhas),
+        "synced_at": datetime.now().isoformat(),
+    }
+
+
+@app.get("/api/ixc/financeiro")
+def ixc_financeiro(origem: str = "todas"):
+    """Análise financeira: inadimplência (aging + devedores), receita mensal,
+    ARPU e previsão de recebimento. origem='todas' agrega as três cidades."""
+    if origem == "todas":
+        cidade_ids = list(IXC_CIDADES.values())
+    elif origem in IXC_CIDADES:
+        cidade_ids = [IXC_CIDADES[origem]]
+    else:
+        raise HTTPException(status_code=400, detail=f"Origem desconhecida: {origem}")
+
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # ── Inadimplência: aging dos títulos vencidos em aberto ──
+            cur.execute("""
+                SELECT
+                    CASE
+                        WHEN CURRENT_DATE - ar.data_vencimento <= 30 THEN '1-30'
+                        WHEN CURRENT_DATE - ar.data_vencimento <= 60 THEN '31-60'
+                        WHEN CURRENT_DATE - ar.data_vencimento <= 90 THEN '61-90'
+                        ELSE '90+'
+                    END AS faixa,
+                    SUM(ar.valor_aberto) AS valor,
+                    COUNT(*)             AS qtd
+                FROM ixc_areceber ar
+                JOIN ixc_clientes cl ON cl.ixc_id = ar.id_cliente
+                WHERE cl.cidade_ixc_id = ANY(%s)
+                  AND ar.status <> 'C'
+                  AND ar.valor_aberto > 0
+                  AND ar.data_vencimento < CURRENT_DATE
+                GROUP BY 1
+            """, (cidade_ids,))
+            aging_map = {r["faixa"]: r for r in cur.fetchall()}
+            aging = [
+                {"faixa": f, "valor": float(aging_map.get(f, {}).get("valor") or 0),
+                 "qtd": int(aging_map.get(f, {}).get("qtd") or 0)}
+                for f in ("1-30", "31-60", "61-90", "90+")
+            ]
+
+            # ── Top devedores ──
+            cur.execute("""
+                SELECT cl.nome, cl.fone, cl.bairro, cl.cidade_ixc_id,
+                       COUNT(*)                                  AS titulos,
+                       SUM(ar.valor_aberto)                      AS valor,
+                       MAX(CURRENT_DATE - ar.data_vencimento)    AS dias_atraso
+                FROM ixc_areceber ar
+                JOIN ixc_clientes cl ON cl.ixc_id = ar.id_cliente
+                WHERE cl.cidade_ixc_id = ANY(%s)
+                  AND ar.status <> 'C'
+                  AND ar.valor_aberto > 0
+                  AND ar.data_vencimento < CURRENT_DATE
+                GROUP BY cl.ixc_id, cl.nome, cl.fone, cl.bairro, cl.cidade_ixc_id
+                ORDER BY valor DESC
+                LIMIT 25
+            """, (cidade_ids,))
+            cidades_label = {v: k.replace("_", " ").title() for k, v in IXC_CIDADES.items()}
+            devedores = [{
+                **r,
+                "valor": float(r["valor"] or 0),
+                "cidade": cidades_label.get(r.pop("cidade_ixc_id"), "—"),
+            } for r in cur.fetchall()]
+
+            # ── Receita mensal (12 meses, por mês de vencimento) ──
+            cur.execute("""
+                SELECT to_char(ar.data_vencimento, 'YYYY-MM') AS mes,
+                       SUM(ar.valor)          AS faturado,
+                       SUM(ar.valor_recebido) AS recebido,
+                       SUM(ar.valor_aberto)   AS aberto
+                FROM ixc_areceber ar
+                JOIN ixc_clientes cl ON cl.ixc_id = ar.id_cliente
+                WHERE cl.cidade_ixc_id = ANY(%s)
+                  AND ar.status <> 'C'
+                  AND ar.data_vencimento >= date_trunc('month', CURRENT_DATE) - INTERVAL '11 months'
+                  AND ar.data_vencimento <  date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'
+                GROUP BY 1
+                ORDER BY 1
+            """, (cidade_ids,))
+            mensal = [{
+                "mes": r["mes"],
+                "faturado": float(r["faturado"] or 0),
+                "recebido": float(r["recebido"] or 0),
+                "aberto":   float(r["aberto"] or 0),
+            } for r in cur.fetchall()]
+
+            # ── Previsão de recebimento (títulos em aberto a vencer) ──
+            cur.execute("""
+                SELECT
+                    CASE
+                        WHEN ar.data_vencimento - CURRENT_DATE <= 30 THEN '30'
+                        WHEN ar.data_vencimento - CURRENT_DATE <= 60 THEN '60'
+                        WHEN ar.data_vencimento - CURRENT_DATE <= 90 THEN '90'
+                        ELSE '90+'
+                    END AS faixa,
+                    SUM(ar.valor_aberto) AS valor,
+                    COUNT(*)             AS qtd
+                FROM ixc_areceber ar
+                JOIN ixc_clientes cl ON cl.ixc_id = ar.id_cliente
+                WHERE cl.cidade_ixc_id = ANY(%s)
+                  AND ar.status <> 'C'
+                  AND ar.valor_aberto > 0
+                  AND ar.data_vencimento >= CURRENT_DATE
+                GROUP BY 1
+            """, (cidade_ids,))
+            prev_map = {r["faixa"]: r for r in cur.fetchall()}
+            previsao = [
+                {"faixa": f, "valor": float(prev_map.get(f, {}).get("valor") or 0),
+                 "qtd": int(prev_map.get(f, {}).get("qtd") or 0)}
+                for f in ("30", "60", "90")
+            ]
+
+            # ── Contratos ativos (para ARPU) e última sync ──
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM ixc_contratos WHERE cidade_ixc_id = ANY(%s) AND status = 'A'",
+                (cidade_ids,)
+            )
+            contratos_ativos = cur.fetchone()["n"]
+            cur.execute("SELECT MAX(synced_at) AS ts, COUNT(*) AS n FROM ixc_areceber")
+            meta = cur.fetchone()
+    finally:
+        conn.close()
+
+    vencido_total = sum(a["valor"] for a in aging)
+    vencido_qtd = sum(a["qtd"] for a in aging)
+    # ARPU: faturamento do último mês fechado ÷ contratos ativos
+    mes_passado = [m for m in mensal if m["mes"] < datetime.now().strftime("%Y-%m")]
+    faturado_mes_anterior = mes_passado[-1]["faturado"] if mes_passado else 0
+    arpu = round(faturado_mes_anterior / contratos_ativos, 2) if contratos_ativos else 0
+
+    return {
+        "origem":            origem,
+        "aging":             aging,
+        "vencido_total":     round(vencido_total, 2),
+        "vencido_qtd":       vencido_qtd,
+        "devedores":         devedores,
+        "mensal":            mensal,
+        "previsao":          previsao,
+        "arpu":              arpu,
+        "contratos_ativos":  contratos_ativos,
+        "faturado_mes_anterior": round(faturado_mes_anterior, 2),
+        "titulos_base":      meta["n"],
+        "last_sync":         meta["ts"].isoformat() if meta["ts"] else None,
+        "sem_sync":          meta["n"] == 0,
     }
 
 

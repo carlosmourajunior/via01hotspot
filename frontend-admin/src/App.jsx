@@ -3,6 +3,7 @@ import axios from 'axios'
 import Login from './pages/Login'
 import VendasIXC from './pages/VendasIXC'
 import OsAnalise from './pages/OsAnalise'
+import Financeiro from './pages/Financeiro'
 import Guests from './pages/Guests'
 import Funil from './pages/Funil'
 import Admin from './pages/Admin'
@@ -27,11 +28,12 @@ axios.interceptors.response.use(
 )
 
 const MENU = [
-  { id: 'dashboard', label: 'Dashboard',    icon: '📊' },
-  { id: 'os',        label: 'OS IXC',       icon: '🔧' },
-  { id: 'guests',    label: 'Wi-Fi Guests', icon: '📶' },
-  { id: 'funil',     label: 'Funil',        icon: '🎯' },
-  { id: 'admin',     label: 'Admin',        icon: '⚙️'  },
+  { id: 'dashboard',  label: 'Dashboard',    icon: '📊' },
+  { id: 'financeiro', label: 'Financeiro',   icon: '💰' },
+  { id: 'os',         label: 'OS IXC',       icon: '🔧' },
+  { id: 'guests',     label: 'Wi-Fi Guests', icon: '📶' },
+  { id: 'funil',      label: 'Funil',        icon: '🎯' },
+  { id: 'admin',      label: 'Admin',        icon: '⚙️'  },
 ]
 
 export default function App() {
@@ -105,11 +107,12 @@ export default function App() {
       </aside>
 
       <main className="main-content">
-        {pagina === 'dashboard' && <VendasIXC />}
-        {pagina === 'os'        && <OsAnalise />}
-        {pagina === 'guests'    && <Guests />}
-        {pagina === 'funil'     && <Funil />}
-        {pagina === 'admin'     && <Admin user={user} />}
+        {pagina === 'dashboard'  && <VendasIXC />}
+        {pagina === 'financeiro' && <Financeiro />}
+        {pagina === 'os'         && <OsAnalise />}
+        {pagina === 'guests'     && <Guests />}
+        {pagina === 'funil'      && <Funil />}
+        {pagina === 'admin'      && <Admin user={user} />}
       </main>
     </div>
   )
