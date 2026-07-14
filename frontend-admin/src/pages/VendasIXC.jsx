@@ -51,6 +51,17 @@ function BadgeManual() {
   )
 }
 
+function BadgeValidado() {
+  return (
+    <span title="Validado manualmente como nova instalação" style={{
+      padding: '1px 6px', borderRadius: 8, fontSize: '.7rem', fontWeight: 700,
+      background: '#e0f5eb', color: '#1a7a44', marginLeft: 5, verticalAlign: 'middle',
+    }}>
+      Validado
+    </span>
+  )
+}
+
 function BtnLixeira({ onClick }) {
   return (
     <button onClick={onClick} title="Remover da lista"
@@ -246,6 +257,18 @@ export default function VendasIXC() {
     try {
       await axios.delete(`/api/ixc/cancelamentos-manuais/${source_id}`)
       carregarC(cidade)
+    } catch(err) {
+      setErroGlobal(err.response?.data?.detail || err.message)
+    }
+  }
+
+  // Valida manualmente um contrato desconsiderado como nova instalação
+  // (passa por cima da regra automática e sobe para a lista de novos contratos)
+  const validarIXC = async (tipo, source_id, nome) => {
+    if (!window.confirm(`Validar "${nome || 'este registro'}" como nova instalação?\n\nEle passa a contar na lista e nas estatísticas de novos contratos.`)) return
+    try {
+      await axios.post(`/api/ixc/registros-ixc/${tipo}/${source_id}/validar`, null, { params: { nome } })
+      carregarV(cidade)
     } catch(err) {
       setErroGlobal(err.response?.data?.detail || err.message)
     }
@@ -559,6 +582,7 @@ export default function VendasIXC() {
                       <td>
                         {r.nome || '—'}
                         {r.manual && <BadgeManual />}
+                        {r.validado && <BadgeValidado />}
                       </td>
                       <td>{r.bairro || '—'}</td>
                       <td><BadgeAtivo ativo={r.cliente_ativo} /></td>
@@ -599,7 +623,14 @@ export default function VendasIXC() {
                           <td style={{ whiteSpace: 'nowrap' }}>{r.data_ativacao}</td>
                           <td>{r.nome || '—'}</td>
                           <td style={{ fontSize: '.78rem', color: '#9c5700' }}>{r.motivo}</td>
-                          <td style={{ textAlign: 'center', width: 32 }}>
+                          <td style={{ textAlign: 'center', width: 64, whiteSpace: 'nowrap' }}>
+                            <button
+                              onClick={() => validarIXC('contrato', r.source_id, r.nome)}
+                              title="Validar como nova instalação"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer',
+                                color: '#27ae60', fontSize: '1rem', padding: '0 0.15rem', lineHeight: 1 }}>
+                              ✔
+                            </button>
                             <BtnLixeira onClick={() => ocultarIXC('contrato', r.source_id, r.nome, carregarV)} />
                           </td>
                         </tr>

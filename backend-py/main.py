@@ -565,6 +565,17 @@ def init_db():
                 PRIMARY KEY (tipo, source_id)
             )
         """)
+        # Registros validados manualmente como nova instalação — passam por
+        # cima da regra automática (cadastro novo + OS de instalação)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ixc_registros_validados (
+                tipo        TEXT NOT NULL,
+                source_id   INTEGER NOT NULL,
+                nome        TEXT,
+                validado_em TIMESTAMP DEFAULT NOW(),
+                PRIMARY KEY (tipo, source_id)
+            )
+        """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS cancelamentos_manuais (
                 id            SERIAL PRIMARY KEY,
@@ -2872,6 +2883,30 @@ def ocultar_registro_ixc(tipo: str, source_id: int, nome: str = ""):
     return {"message": "Registro ocultado da lista."}
 
 
+@app.post("/api/ixc/registros-ixc/{tipo}/{source_id}/validar")
+def validar_registro_ixc(tipo: str, source_id: int, nome: str = ""):
+    """Valida manualmente um registro do IXC como nova instalação.
+
+    Passa por cima da regra automática (cadastro novo + OS de instalação):
+    o registro sobe para a lista de novos contratos e conta nas estatísticas.
+    """
+    if tipo not in ("contrato", "os"):
+        raise HTTPException(status_code=400, detail="Tipo inválido (use 'contrato' ou 'os').")
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO ixc_registros_validados (tipo, source_id, nome)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (tipo, source_id) DO NOTHING
+            """, (tipo, source_id, nome or ""))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"message": "Registro validado como nova instalação."}
+
+
 @app.post("/api/ixc/contratos-manuais")
 def criar_contrato_manual(body: dict):
     """Insere um contrato manualmente (não vai ao IXC, não é removido pelo sync)."""
@@ -3008,7 +3043,12 @@ def ixc_vendas(origem: str = "borda_mata"):
                             SELECT 1 FROM ixc_os osx
                             WHERE osx.id_cliente = ct.id_cliente
                               AND osx.id_assunto IN (1, 18)
-                        ) AS tem_os_instalacao
+                        ) AS tem_os_instalacao,
+                        -- Validação manual passa por cima da regra automática
+                        EXISTS (
+                            SELECT 1 FROM ixc_registros_validados v
+                            WHERE v.tipo = 'contrato' AND v.source_id = ct.ixc_contrato_id
+                        ) AS validado
                     FROM ixc_contratos ct
                     LEFT JOIN ixc_clientes cl ON cl.ixc_id = ct.id_cliente
                     WHERE ct.cidade_ixc_id = ANY(%s)
@@ -3031,7 +3071,8 @@ def ixc_vendas(origem: str = "borda_mata"):
                         fone,
                         'S'                AS cliente_ativo,
                         TRUE               AS cadastro_novo,
-                        TRUE               AS tem_os_instalacao
+                        TRUE               AS tem_os_instalacao,
+                        FALSE              AS validado
                     FROM contratos_manuais
                     WHERE cidade_ixc_id = ANY(%s)
                 ) t
@@ -3069,7 +3110,7 @@ def ixc_vendas(origem: str = "borda_mata"):
         r["data_ativacao"] = str(da) if da else ""
 
         motivo = None
-        if not r["manual"]:
+        if not r["manual"] and not r.get("validado"):
             if not cadastro_novo:
                 motivo = "Cadastro antigo — possível troca de titularidade"
             elif os_min and da and da >= os_min and not tem_os:
