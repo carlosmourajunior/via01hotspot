@@ -576,6 +576,8 @@ def init_db():
                 PRIMARY KEY (tipo, source_id)
             )
         """)
+        cur.execute("ALTER TABLE ixc_registros_ocultos   ADD COLUMN IF NOT EXISTS motivo TEXT")
+        cur.execute("ALTER TABLE ixc_registros_validados ADD COLUMN IF NOT EXISTS motivo TEXT")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS cancelamentos_manuais (
                 id            SERIAL PRIMARY KEY,
@@ -2860,7 +2862,7 @@ def ixc_cancelamentos_ixc(origem: str = "borda_mata"):
 
 
 @app.delete("/api/ixc/registros-ixc/{tipo}/{source_id}")
-def ocultar_registro_ixc(tipo: str, source_id: int, nome: str = ""):
+def ocultar_registro_ixc(tipo: str, source_id: int, nome: str = "", motivo: str = ""):
     """Oculta da dashboard um registro vindo do IXC (contrato ou OS de cancelamento).
 
     O registro continua existindo no espelho local e no IXC; ele apenas sai da
@@ -2868,15 +2870,17 @@ def ocultar_registro_ixc(tipo: str, source_id: int, nome: str = ""):
     """
     if tipo not in ("contrato", "os"):
         raise HTTPException(status_code=400, detail="Tipo inválido (use 'contrato' ou 'os').")
+    if not motivo.strip():
+        raise HTTPException(status_code=400, detail="Informe o motivo da remoção.")
 
     conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO ixc_registros_ocultos (tipo, source_id, nome)
-                VALUES (%s, %s, %s)
+                INSERT INTO ixc_registros_ocultos (tipo, source_id, nome, motivo)
+                VALUES (%s, %s, %s, %s)
                 ON CONFLICT (tipo, source_id) DO NOTHING
-            """, (tipo, source_id, nome or ""))
+            """, (tipo, source_id, nome or "", motivo.strip()))
         conn.commit()
     finally:
         conn.close()
@@ -2884,7 +2888,7 @@ def ocultar_registro_ixc(tipo: str, source_id: int, nome: str = ""):
 
 
 @app.post("/api/ixc/registros-ixc/{tipo}/{source_id}/validar")
-def validar_registro_ixc(tipo: str, source_id: int, nome: str = ""):
+def validar_registro_ixc(tipo: str, source_id: int, nome: str = "", motivo: str = ""):
     """Valida manualmente um registro do IXC como nova instalação.
 
     Passa por cima da regra automática (cadastro novo + OS de instalação):
@@ -2892,15 +2896,17 @@ def validar_registro_ixc(tipo: str, source_id: int, nome: str = ""):
     """
     if tipo not in ("contrato", "os"):
         raise HTTPException(status_code=400, detail="Tipo inválido (use 'contrato' ou 'os').")
+    if not motivo.strip():
+        raise HTTPException(status_code=400, detail="Informe o motivo da validação.")
 
     conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO ixc_registros_validados (tipo, source_id, nome)
-                VALUES (%s, %s, %s)
+                INSERT INTO ixc_registros_validados (tipo, source_id, nome, motivo)
+                VALUES (%s, %s, %s, %s)
                 ON CONFLICT (tipo, source_id) DO NOTHING
-            """, (tipo, source_id, nome or ""))
+            """, (tipo, source_id, nome or "", motivo.strip()))
         conn.commit()
     finally:
         conn.close()
@@ -2928,7 +2934,7 @@ def ixc_ajustes_manuais(origem: str = "todas"):
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
-                SELECT oc.tipo, oc.source_id, oc.nome, oc.ocultado_em,
+                SELECT oc.tipo, oc.source_id, oc.nome, oc.ocultado_em, oc.motivo,
                        COALESCE(ct.data_ativacao::text, to_char(o.data_abertura, 'YYYY-MM-DD')) AS data,
                        COALESCE(ct.cidade_ixc_id, o.id_cidade) AS cidade_ixc_id
                 FROM ixc_registros_ocultos oc
@@ -2939,7 +2945,7 @@ def ixc_ajustes_manuais(origem: str = "todas"):
             ocultados = [dict(r) for r in cur.fetchall()]
 
             cur.execute("""
-                SELECT v.tipo, v.source_id, v.nome, v.validado_em,
+                SELECT v.tipo, v.source_id, v.nome, v.validado_em, v.motivo,
                        ct.data_ativacao::text AS data,
                        ct.cidade_ixc_id
                 FROM ixc_registros_validados v
@@ -2950,11 +2956,11 @@ def ixc_ajustes_manuais(origem: str = "todas"):
 
             cur.execute("""
                 SELECT id, nome, data_ativacao::text AS data, cidade_ixc_id, criado_em,
-                       'contrato' AS tipo
+                       'contrato' AS tipo, obs AS motivo
                 FROM contratos_manuais
                 UNION ALL
                 SELECT id, nome, data_abertura::text AS data, cidade_ixc_id, criado_em,
-                       'cancelamento' AS tipo
+                       'cancelamento' AS tipo, obs AS motivo
                 FROM cancelamentos_manuais
                 ORDER BY criado_em DESC
             """)
@@ -3031,6 +3037,8 @@ def criar_contrato_manual(body: dict):
     data_ativacao = (body.get("data_ativacao") or "")[:10]
     if not data_ativacao:
         raise HTTPException(status_code=400, detail="Data de ativação é obrigatória")
+    if not (body.get("obs") or "").strip():
+        raise HTTPException(status_code=400, detail="Informe o motivo da inserção manual")
     conn = get_conn()
     try:
         with conn.cursor() as cur:
@@ -3081,6 +3089,8 @@ def criar_cancelamento_manual(body: dict):
     data_abertura = (body.get("data_abertura") or "")[:10]
     if not data_abertura:
         raise HTTPException(status_code=400, detail="Data é obrigatória")
+    if not (body.get("obs") or "").strip():
+        raise HTTPException(status_code=400, detail="Informe o motivo da inserção manual")
     conn = get_conn()
     try:
         with conn.cursor() as cur:

@@ -155,8 +155,8 @@ function SecaoTitulo({ label, cor, bg }) {
   )
 }
 
-const FORM_VENDA_VAZIO = { nome: '', data_ativacao: '', bairro: '', fone: '' }
-const FORM_CANC_VAZIO  = { nome: '', data_abertura: '',  bairro: '', fone: '' }
+const FORM_VENDA_VAZIO = { nome: '', data_ativacao: '', bairro: '', fone: '', obs: '' }
+const FORM_CANC_VAZIO  = { nome: '', data_abertura: '',  bairro: '', fone: '', obs: '' }
 
 export default function VendasIXC() {
   const hoje = new Date()
@@ -329,12 +329,24 @@ export default function VendasIXC() {
     }
   }
 
+  // Pede o motivo do ajuste manual; retorna null se o usuário cancelar
+  const pedirMotivo = (texto) => {
+    const motivo = window.prompt(texto)
+    if (motivo === null) return null
+    if (!motivo.trim()) {
+      setErroGlobal('O motivo é obrigatório para ajustes manuais.')
+      return null
+    }
+    return motivo.trim()
+  }
+
   // Valida manualmente um contrato desconsiderado como nova instalação
   // (passa por cima da regra automática e sobe para a lista de novos contratos)
   const validarIXC = async (tipo, source_id, nome) => {
-    if (!window.confirm(`Validar "${nome || 'este registro'}" como nova instalação?\n\nEle passa a contar na lista e nas estatísticas de novos contratos.`)) return
+    const motivo = pedirMotivo(`Validar "${nome || 'este registro'}" como nova instalação.\n\nInforme o motivo:`)
+    if (!motivo) return
     try {
-      await axios.post(`/api/ixc/registros-ixc/${tipo}/${source_id}/validar`, null, { params: { nome } })
+      await axios.post(`/api/ixc/registros-ixc/${tipo}/${source_id}/validar`, null, { params: { nome, motivo } })
       carregarV(cidade)
     } catch(err) {
       setErroGlobal(err.response?.data?.detail || err.message)
@@ -344,9 +356,10 @@ export default function VendasIXC() {
   // Registros vindos do IXC não podem ser apagados (o sync os recriaria) —
   // são ocultados da lista e das estatísticas de forma permanente
   const ocultarIXC = async (tipo, source_id, nome, recarregar) => {
-    if (!window.confirm(`Remover "${nome || 'este registro'}" da lista?\n\nEle sai da dashboard e das estatísticas (o sync não o traz de volta), mas continua existindo no IXC.`)) return
+    const motivo = pedirMotivo(`Remover "${nome || 'este registro'}" da lista e das estatísticas (o sync não o traz de volta).\n\nInforme o motivo:`)
+    if (!motivo) return
     try {
-      await axios.delete(`/api/ixc/registros-ixc/${tipo}/${source_id}`, { params: { nome } })
+      await axios.delete(`/api/ixc/registros-ixc/${tipo}/${source_id}`, { params: { nome, motivo } })
       recarregar(cidade)
     } catch(err) {
       setErroGlobal(err.response?.data?.detail || err.message)
@@ -623,6 +636,11 @@ export default function VendasIXC() {
                 <input style={{ ...inStyle, width: '100%' }} placeholder="Fone"
                   value={formVenda.fone} onChange={e => setFormVenda(f => ({ ...f, fone: e.target.value }))} />
               </div>
+              <div style={{ flex: '2 1 180px' }}>
+                <label style={{ display: 'block', fontSize: '.75rem', color: '#555', marginBottom: 3 }}>Motivo *</label>
+                <input style={{ ...inStyle, width: '100%' }} placeholder="Por que está inserindo manualmente?" required
+                  value={formVenda.obs} onChange={e => setFormVenda(f => ({ ...f, obs: e.target.value }))} />
+              </div>
               <button type="submit" disabled={salvandoV}
                 style={{ padding: '0.4rem 0.8rem', background: COR_VENDAS, color: '#fff',
                   border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 700,
@@ -762,6 +780,11 @@ export default function VendasIXC() {
                 <input style={{ ...inStyle, width: '100%' }} placeholder="Fone"
                   value={formCanc.fone} onChange={e => setFormCanc(f => ({ ...f, fone: e.target.value }))} />
               </div>
+              <div style={{ flex: '2 1 180px' }}>
+                <label style={{ display: 'block', fontSize: '.75rem', color: '#555', marginBottom: 3 }}>Motivo *</label>
+                <input style={{ ...inStyle, width: '100%' }} placeholder="Por que está inserindo manualmente?" required
+                  value={formCanc.obs} onChange={e => setFormCanc(f => ({ ...f, obs: e.target.value }))} />
+              </div>
               <button type="submit" disabled={salvandoC}
                 style={{ padding: '0.4rem 0.8rem', background: COR_CANC, color: '#fff',
                   border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 700,
@@ -858,7 +881,7 @@ export default function VendasIXC() {
                   <div className="table-wrapper" style={{ maxHeight: 200 }}>
                     <table>
                       <thead>
-                        <tr><th>Data</th><th>Nome</th><th>Tipo</th><th>Cidade</th><th>Quando</th><th></th></tr>
+                        <tr><th>Data</th><th>Nome</th><th>Tipo</th><th>Cidade</th><th>Motivo</th><th>Quando</th><th></th></tr>
                       </thead>
                       <tbody>
                         {sec.linhas.map((r, i) => (
@@ -867,6 +890,7 @@ export default function VendasIXC() {
                             <td>{r.nome || '—'}</td>
                             <td style={{ fontSize: '.78rem' }}>{r.tipo === 'os' ? 'cancelamento' : r.tipo}</td>
                             <td style={{ fontSize: '.78rem' }}>{r.cidade}</td>
+                            <td style={{ fontSize: '.78rem', color: '#4a3670' }}>{r.motivo || '—'}</td>
                             <td style={{ whiteSpace: 'nowrap', fontSize: '.78rem', color: '#888' }}>
                               {r.quando ? new Date(r.quando).toLocaleString('pt-BR') : '—'}
                             </td>
