@@ -131,7 +131,7 @@ export default function App() {
         {pagina === 'dashboard'  && <VendasIXC />}
         {pagina === 'financeiro' && <Financeiro />}
         {pagina === 'os'         && <OsAnalise />}
-        {pagina === 'olt'        && <Olt />}
+        {/* {pagina === 'olt'        && <Olt />} */}  
         {pagina === 'guests'     && <Guests />}
         {pagina === 'funil'      && <Funil />}
         {pagina === 'admin'      && <Admin user={user} />}
