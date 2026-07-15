@@ -26,6 +26,7 @@ from passlib.context import CryptContext
 from dotenv import load_dotenv
 
 import db as hotspot_db
+import olt_admin
 from guests_admin import router as guests_router, reclassificar_guests
 from funil_admin import router as funil_router
 
@@ -765,6 +766,8 @@ def startup():
     if DATABASE_URL:
         init_db()
         hotspot_db.init_hotspot_tables()
+        olt_admin.init_olt_tables()
+        olt_admin.limpar_jobs_orfaos()
         _criar_admin_padrao()
 
 
@@ -807,6 +810,30 @@ async def _inicia_agendador_sync():
     if IXC_SYNC_HORA and IXC_TOKEN and DATABASE_URL:
         asyncio.create_task(_agendador_sync_ixc())
         print(f"[SYNC] Agendador diário ativo — próxima execução às {IXC_SYNC_HORA} ({_TZ_LOCAL.key})")
+
+
+# ── Coleta OLT agendada (a cada N horas; vazio desativa) ────────────────────
+OLT_SYNC_INTERVALO_HORAS = environ.get("OLT_SYNC_INTERVALO_HORAS", "2")
+
+
+async def _agendador_sync_olt():
+    intervalo = float(OLT_SYNC_INTERVALO_HORAS) * 3600
+    while True:
+        await asyncio.sleep(intervalo)
+        print(f"[OLT] Coleta agendada iniciando ({datetime.now(_TZ_LOCAL):%d/%m/%Y %H:%M})")
+        try:
+            # Passa pelo runner do olt_admin: respeita a trava e registra em olt_jobs
+            await asyncio.to_thread(olt_admin.rodar_coleta_completa_agendada)
+        except Exception as e:
+            print(f"[OLT] Erro na coleta agendada: {e}")
+
+
+@app.on_event("startup")
+async def _inicia_agendador_olt():
+    tem_olt = environ.get("NOKIA_HOST") or environ.get("OLT_MOCK_DIR")
+    if OLT_SYNC_INTERVALO_HORAS and tem_olt and DATABASE_URL:
+        asyncio.create_task(_agendador_sync_olt())
+        print(f"[OLT] Agendador ativo — coleta completa a cada {OLT_SYNC_INTERVALO_HORAS}h")
 
 
 def _row_hash(row: dict, colunas: list) -> str:
@@ -3733,9 +3760,10 @@ def resumo(origem: str = "ouro_fino"):
     }
 
 
-# ── Acessos do hotspot (Wi-Fi guests) e funil de vendas ─────────────────────
+# ── Acessos do hotspot (Wi-Fi guests), funil de vendas e OLT ────────────────
 app.include_router(guests_router)
 app.include_router(funil_router)
+app.include_router(olt_admin.router)
 
 
 # ── Frontend estático (build do frontend-admin) ─────────────────────────────

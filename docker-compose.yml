@@ -67,6 +67,7 @@ services:
       timeout: 5s
       retries: 10
 
+  # ⚠ Manter 1 worker uvicorn (default): a trava de coleta da OLT vive em memória
   admin:
     build:
       context: .
