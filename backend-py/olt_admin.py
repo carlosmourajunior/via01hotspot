@@ -12,12 +12,17 @@ from os import environ
 import psycopg2.extras
 import requests
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
 from jose import jwt, JWTError
 
 import db
 import olt_client
 
 router = APIRouter()
+
+# Ações que alteram a OLT (reboot/remover) só ficam ativas com a flag ligada —
+# rollback instantâneo sem redeploy
+OLT_ACOES_ATIVAS = environ.get("OLT_ACOES_ATIVAS", "0") == "1"
 
 # ── Tabelas ──────────────────────────────────────────────────────────────────
 
@@ -566,6 +571,96 @@ def listar_portas():
     for r in rows:
         r["atualizado_em"] = r["atualizado_em"].isoformat() if r["atualizado_em"] else None
     return rows
+
+
+class AcaoBody(BaseModel):
+    motivo: str
+
+
+def _acao_onu(onu_id: int, acao: str, body: AcaoBody, request: Request):
+    if not OLT_ACOES_ATIVAS:
+        raise HTTPException(status_code=403, detail="Ações na OLT estão desativadas (OLT_ACOES_ATIVAS=0).")
+    motivo = (body.motivo or "").strip()
+    if len(motivo) < 5:
+        raise HTTPException(status_code=400, detail="Informe o motivo (mínimo 5 caracteres).")
+
+    conn = db.get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT pon, position, serial FROM olt_onus WHERE id = %s", (onu_id,))
+            onu = cur.fetchone()
+    finally:
+        conn.close()
+    if not onu:
+        raise HTTPException(status_code=404, detail="ONU não encontrada")
+
+    interface = f"{onu['pon']}/{onu['position']}"
+    usuario = _usuario_do_token(request)
+
+    if not _OLT_LOCK.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="A OLT está ocupada com uma coleta. Aguarde terminar.")
+    resultado = "ok"
+    try:
+        if acao == "reboot":
+            olt_client.reboot_onu(interface)
+        else:  # remover
+            olt_client.remover_onu(interface)
+    except Exception as e:
+        resultado = f"erro: {e}"
+    finally:
+        _OLT_LOCK.release()
+
+    conn = db.get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO olt_acoes (usuario, acao, onu_interface, onu_serial, motivo, resultado) "
+                "VALUES (%s, %s, %s, %s, %s, %s)",
+                (usuario, acao, interface, onu["serial"], motivo, resultado),
+            )
+            # Remoção bem-sucedida: a ONU não existe mais na OLT
+            if acao == "remover" and resultado == "ok":
+                cur.execute("DELETE FROM olt_onus WHERE id = %s", (onu_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+    if resultado != "ok":
+        raise HTTPException(status_code=502, detail=f"Falha na OLT ao {acao} {interface}: {resultado}")
+    return {"message": f"ONU {interface} — {acao} executado.", "interface": interface}
+
+
+@router.post("/api/olt/onus/{onu_id}/reboot")
+def reboot_onu(onu_id: int, body: AcaoBody, request: Request):
+    return _acao_onu(onu_id, "reboot", body, request)
+
+
+@router.post("/api/olt/onus/{onu_id}/remover")
+def remover_onu(onu_id: int, body: AcaoBody, request: Request):
+    return _acao_onu(onu_id, "remover", body, request)
+
+
+@router.get("/api/olt/acoes")
+def listar_acoes(limit: int = 50):
+    conn = db.get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, usuario, acao, onu_interface, onu_serial, motivo, resultado, criado_em "
+                "FROM olt_acoes ORDER BY id DESC LIMIT %s", (limit,)
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    for r in rows:
+        r["criado_em"] = r["criado_em"].isoformat() if r["criado_em"] else None
+    return rows
+
+
+@router.get("/api/olt/config")
+def olt_config():
+    """Config do frontend (ex.: se as ações destrutivas estão habilitadas)."""
+    return {"acoes_ativas": OLT_ACOES_ATIVAS}
 
 
 @router.get("/api/olt/clientes-fibra")

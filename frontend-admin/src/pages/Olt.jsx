@@ -6,6 +6,7 @@ const SUBABAS = [
   { id: 'onus',     label: 'ONUs' },
   { id: 'portas',   label: 'Portas' },
   { id: 'clientes', label: 'Clientes Fibra' },
+  { id: 'auditoria', label: 'Auditoria' },
 ]
 
 const COLETAS = [
@@ -33,7 +34,12 @@ export default function Olt() {
   const [jobs, setJobs] = useState([])
   const [erro, setErro] = useState(null)
   const [aviso, setAviso] = useState(null)
+  const [acoesAtivas, setAcoesAtivas] = useState(false)
   const pollRef = useRef(null)
+
+  useEffect(() => {
+    axios.get('/api/olt/config').then(r => setAcoesAtivas(r.data.acoes_ativas)).catch(() => {})
+  }, [])
 
   const carregarOverview = () => {
     axios.get('/api/olt/overview')
@@ -147,10 +153,96 @@ export default function Olt() {
         </div>
       )}
 
-      {!overview?.sem_dados && sub === 'visao'    && <VisaoGeral overview={overview} />}
-      {!overview?.sem_dados && sub === 'onus'     && <TabelaOnus />}
-      {!overview?.sem_dados && sub === 'portas'   && <TabelaPortas />}
-      {!overview?.sem_dados && sub === 'clientes' && <TabelaClientes />}
+      {!overview?.sem_dados && sub === 'visao'     && <VisaoGeral overview={overview} />}
+      {!overview?.sem_dados && sub === 'onus'      && <TabelaOnus acoesAtivas={acoesAtivas} />}
+      {!overview?.sem_dados && sub === 'portas'    && <TabelaPortas />}
+      {!overview?.sem_dados && sub === 'clientes'  && <TabelaClientes />}
+      {sub === 'auditoria' && <TabelaAuditoria />}
+    </div>
+  )
+}
+
+function ModalAcao({ onu, acao, onFechar, onFeito }) {
+  const [motivo, setMotivo] = useState('')
+  const [serialConf, setSerialConf] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const [erro, setErro] = useState(null)
+  const remover = acao === 'remover'
+  const podeEnviar = motivo.trim().length >= 5 && (!remover || serialConf.trim() === onu.serial)
+
+  const executar = () => {
+    setEnviando(true); setErro(null)
+    axios.post(`/api/olt/onus/${onu.id}/${acao}`, { motivo }, { timeout: 60000 })
+      .then(r => onFeito(r.data.message))
+      .catch(e => { setErro(e.response?.data?.detail || e.message); setEnviando(false) })
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+      <div style={{ background: '#fff', borderRadius: 12, padding: '1.5rem', width: '100%', maxWidth: 460 }}>
+        <h2 style={{ margin: '0 0 .5rem', fontSize: '1.05rem', color: remover ? '#c0392b' : '#9c5700' }}>
+          {remover ? '🗑 Remover ONU' : '🔄 Reiniciar ONU'}
+        </h2>
+        <p style={{ fontSize: '.85rem', color: '#555', margin: '0 0 1rem' }}>
+          <strong>{onu.desc1 || onu.serial}</strong> · {onu.pon}/{onu.position} · serial <code>{onu.serial}</code>
+          {remover && <><br /><span style={{ color: '#c0392b' }}>Esta ação desautoriza e remove a ONU da OLT. Não há como reprovisionar por aqui.</span></>}
+        </p>
+
+        <label style={{ fontSize: '.78rem', fontWeight: 600, color: '#4a3670' }}>Motivo *</label>
+        <textarea value={motivo} onChange={e => setMotivo(e.target.value)} rows={2} autoFocus
+          placeholder="Por que está fazendo isso?"
+          style={{ width: '100%', boxSizing: 'border-box', padding: '.5rem', borderRadius: 8, border: '1px solid #d5cbe6', fontFamily: 'inherit', fontSize: '.85rem', marginTop: '.3rem' }} />
+
+        {remover && (
+          <div style={{ marginTop: '.6rem' }}>
+            <label style={{ fontSize: '.78rem', fontWeight: 600, color: '#c0392b' }}>Digite o serial para confirmar</label>
+            <input value={serialConf} onChange={e => setSerialConf(e.target.value)} placeholder={onu.serial}
+              style={{ width: '100%', boxSizing: 'border-box', padding: '.5rem', borderRadius: 8, border: '1px solid #e0b4b4', fontFamily: 'monospace', fontSize: '.85rem', marginTop: '.3rem' }} />
+          </div>
+        )}
+
+        {erro && <div className="alert-error" style={{ marginTop: '.7rem', marginBottom: 0 }}>{erro}</div>}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '.6rem', marginTop: '1rem' }}>
+          <button className="btn-secondary" onClick={onFechar} disabled={enviando}>Cancelar</button>
+          <button onClick={executar} disabled={!podeEnviar || enviando}
+            style={{ padding: '.45rem 1rem', borderRadius: 8, border: 'none', fontWeight: 700, fontFamily: 'inherit',
+              cursor: podeEnviar && !enviando ? 'pointer' : 'not-allowed', opacity: podeEnviar && !enviando ? 1 : .5,
+              background: remover ? '#c0392b' : '#e67e22', color: '#fff' }}>
+            {enviando ? 'Executando…' : remover ? 'Remover' : 'Reiniciar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TabelaAuditoria() {
+  const [acoes, setAcoes] = useState([])
+  useEffect(() => { axios.get('/api/olt/acoes', { params: { limit: 100 } }).then(r => setAcoes(r.data)) }, [])
+  return (
+    <div className="card">
+      <h2 style={{ color: 'var(--roxo)', marginBottom: '1rem' }}>Auditoria de ações na OLT ({acoes.length})</h2>
+      <div className="table-wrapper" style={{ maxHeight: 520 }}>
+        <table>
+          <thead><tr><th>Quando</th><th>Usuário</th><th>Ação</th><th>ONU</th><th>Serial</th><th>Motivo</th><th>Resultado</th></tr></thead>
+          <tbody>
+            {acoes.map(a => (
+              <tr key={a.id}>
+                <td style={{ whiteSpace: 'nowrap', fontSize: '.78rem' }}>{dataHora(a.criado_em)}</td>
+                <td>{a.usuario}</td>
+                <td><span style={{ padding: '1px 7px', borderRadius: 8, fontSize: '.72rem', fontWeight: 600,
+                  background: a.acao === 'remover' ? '#fde8e8' : '#fef3e2', color: a.acao === 'remover' ? '#c0392b' : '#9c5700' }}>{a.acao}</span></td>
+                <td style={{ fontFamily: 'monospace', fontSize: '.76rem' }}>{a.onu_interface}</td>
+                <td style={{ fontFamily: 'monospace', fontSize: '.76rem' }}>{a.onu_serial || '—'}</td>
+                <td style={{ fontSize: '.8rem' }}>{a.motivo}</td>
+                <td style={{ fontSize: '.76rem', color: a.resultado === 'ok' ? '#1a7a44' : '#c0392b' }}>{a.resultado}</td>
+              </tr>
+            ))}
+            {acoes.length === 0 && <tr><td colSpan={7} className="sem-resultado">Nenhuma ação registrada.</td></tr>}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
@@ -229,11 +321,13 @@ function VisaoGeral({ overview }) {
   )
 }
 
-function TabelaOnus() {
+function TabelaOnus({ acoesAtivas }) {
   const [onus, setOnus] = useState([])
   const [busca, setBusca] = useState('')
   const [estado, setEstado] = useState('')
   const [loading, setLoading] = useState(true)
+  const [modal, setModal] = useState(null)  // { onu, acao }
+  const [aviso, setAviso] = useState(null)
 
   const carregar = () => {
     setLoading(true)
@@ -256,10 +350,11 @@ function TabelaOnus() {
             onChange={e => setBusca(e.target.value)} style={{ minWidth: 200 }} />
         </div>
       </div>
+      {aviso && <div className="alert-success">{aviso}</div>}
       <div className="table-wrapper" style={{ maxHeight: 520 }}>
         <table>
           <thead>
-            <tr><th>PON / Pos.</th><th>Serial</th><th>MAC</th><th>Estado</th><th>Sinal (dBm)</th><th>Cliente</th><th>Descrição</th></tr>
+            <tr><th>PON / Pos.</th><th>Serial</th><th>MAC</th><th>Estado</th><th>Sinal (dBm)</th><th>Cliente</th><th>Descrição</th>{acoesAtivas && <th>Ações</th>}</tr>
           </thead>
           <tbody>
             {onus.map(o => {
@@ -278,13 +373,28 @@ function TabelaOnus() {
                   <td><span style={{ padding: '1px 7px', borderRadius: 8, fontSize: '.72rem', fontWeight: 700, background: b.bg, color: b.cor }}>{b.txt}</span></td>
                   <td>{o.cliente_fibra ? '✅' : '—'}</td>
                   <td style={{ fontSize: '.8rem' }}>{o.desc1 || '—'}</td>
+                  {acoesAtivas && (
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <button title="Reiniciar ONU" onClick={() => setModal({ onu: o, acao: 'reboot' })}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: '0 .2rem' }}>🔄</button>
+                      <button title="Remover ONU" onClick={() => setModal({ onu: o, acao: 'remover' })}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: '0 .2rem' }}>🗑</button>
+                    </td>
+                  )}
                 </tr>
               )
             })}
-            {!loading && onus.length === 0 && <tr><td colSpan={7} className="sem-resultado">Nenhuma ONU.</td></tr>}
+            {!loading && onus.length === 0 && <tr><td colSpan={acoesAtivas ? 8 : 7} className="sem-resultado">Nenhuma ONU.</td></tr>}
           </tbody>
         </table>
       </div>
+      {modal && (
+        <ModalAcao
+          onu={modal.onu} acao={modal.acao}
+          onFechar={() => setModal(null)}
+          onFeito={(msg) => { setModal(null); setAviso(msg); carregar() }}
+        />
+      )}
     </div>
   )
 }

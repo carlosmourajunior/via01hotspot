@@ -246,3 +246,23 @@ class OltConnection:
         except Exception:
             pass
         return False
+
+
+# ── Ações destrutivas na OLT ─────────────────────────────────────────────────
+
+def reboot_onu(interface: str):
+    """Reinicia a ONU (ex.: interface '1/1/1/14/90')."""
+    with OltConnection() as olt:
+        olt.send_command(CMD_ONT_REBOOT.format(interface=interface))
+
+
+def remover_onu(interface: str):
+    """Desautoriza e remove a ONU da OLT (admin-state down + no interface)."""
+    import time
+    with OltConnection() as olt:
+        olt.write_channel(CMD_ONT_DOWN.format(interface=interface) + "\n")
+        time.sleep(2)
+        olt.read_channel()
+        olt.write_channel(CMD_ONT_REMOVE.format(interface=interface) + "\n")
+        time.sleep(2)
+        olt.read_channel()
