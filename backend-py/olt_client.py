@@ -41,11 +41,8 @@ def get_device_params() -> dict:
         "verbose":             os.getenv("NOKIA_VERBOSE") == "True",
         "global_delay_factor": int(os.getenv("NOKIA_GLOBAL_DELAY_FACTOR", "2")),
         # Compatibilidade com OLTs antigos/Nokia/Alcatel que rejeitam host key
-        # estrita e tentativas automáticas de chave SSH.
+        # estrita em algumas combinações de Paramiko/Netmiko.
         "ssh_strict": False,
-        "allow_agent": False,
-        "look_for_keys": False,
-        "use_keys": False,
     }
 
 
