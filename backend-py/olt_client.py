@@ -40,6 +40,12 @@ def get_device_params() -> dict:
         "password":            os.getenv("NOKIA_PASSWORD", ""),
         "verbose":             os.getenv("NOKIA_VERBOSE") == "True",
         "global_delay_factor": int(os.getenv("NOKIA_GLOBAL_DELAY_FACTOR", "2")),
+        # Compatibilidade com OLTs antigos/Nokia/Alcatel que rejeitam host key
+        # estrita e tentativas automáticas de chave SSH.
+        "ssh_strict": False,
+        "allow_agent": False,
+        "look_for_keys": False,
+        "use_keys": False,
     }
 
 
