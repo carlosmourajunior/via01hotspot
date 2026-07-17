@@ -47,7 +47,7 @@ function KpiCard({ k }) {
       {k.meta !== null && (
         <>
           <div className="kpi-label">
-            Meta: {k.sentido === 'menor' ? '≤ ' : ''}{fmtValor(k.meta, k.unidade)}
+            Meta: {k.sentido === 'menor' ? '≤ ' : '≥ '}{fmtValor(k.meta, k.unidade)}
             {k.pct !== null && ` · ${k.pct.toLocaleString('pt-BR')}%`}
           </div>
           <div style={{ height: 6, borderRadius: 3, background: '#eee', marginTop: '0.6rem', overflow: 'hidden' }}>

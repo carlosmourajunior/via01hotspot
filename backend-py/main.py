@@ -784,8 +784,11 @@ def _seed_kpis_padrao():
             if cur.fetchone()[0] == 0:
                 cur.execute("""
                     INSERT INTO dashboard_kpis (titulo, tipo, origem, meta, ordem) VALUES
-                    ('Vendas Ouro Fino', 'vendas', 'ouro_fino', 60, 1),
-                    ('Churn Via01',      'churn',  'todas',      2, 2)
+                    ('Vendas Ouro Fino',                    'vendas',              'ouro_fino', 60, 1),
+                    ('Churn Via01',                         'churn',               'todas',      2, 2),
+                    ('1º suporte após instalação (dias)',   'os_primeiro_suporte', 'todas',     60, 3),
+                    ('Entre suportes do mesmo cliente',     'os_entre_suportes',   'todas',     60, 4),
+                    ('Suportes por cliente em 60 dias',     'os_reincidencia',     'todas',      2, 5)
                 """)
         conn.commit()
     finally:
@@ -3776,9 +3779,93 @@ KPI_TIPOS = {
     "crescimento":   {"label": "Crescimento líquido do mês",        "unidade": "",  "sentido": "maior"},
     "churn":         {"label": "Churn mensal (% da base ativa)",    "unidade": "%", "sentido": "menor"},
     "base_ativa":    {"label": "Contratos ativos (base atual)",     "unidade": "",  "sentido": "maior"},
+    "os_primeiro_suporte": {"label": "Dias até o 1º suporte após instalação (média)", "unidade": " dias", "sentido": "maior"},
+    "os_entre_suportes":   {"label": "Dias entre suportes do mesmo cliente (média)",  "unidade": " dias", "sentido": "maior"},
+    "os_reincidencia":     {"label": "Suportes por cliente em 60 dias (média)",       "unidade": "",      "sentido": "menor"},
     "manual":        {"label": "Valor manual",                      "unidade": "",  "sentido": "maior"},
 }
 KPI_ORIGENS = ["todas"] + list(IXC_CIDADES.keys())
+
+# Assuntos de OS usados nos KPIs de qualidade (mesmos grupos da tela OS IXC)
+_KPI_OS_INSTALACAO = [1, 18]
+_KPI_OS_SUPORTE    = [2, 5, 7, 8, 9, 10, 11, 12, 13, 14]
+
+
+def _kpi_os_metricas(origem, ano, mes):
+    """Métricas de qualidade sobre OS de suporte, medidas nas OS abertas no mês.
+
+    - os_primeiro_suporte: média de dias entre a OS de instalação e o PRIMEIRO
+      suporte do cliente (suportes do mês cuja OS anterior é uma instalação).
+    - os_entre_suportes: média de dias desde o suporte anterior do mesmo cliente
+      (suportes do mês que já tinham suporte antes).
+    - os_reincidencia: média de suportes por cliente (com ao menos 1) nos 60
+      dias que terminam no fim do mês selecionado.
+    """
+    if origem == "todas":
+        cidade_ids = list(IXC_CIDADES.values())
+    elif origem in IXC_CIDADES:
+        cidade_ids = [IXC_CIDADES[origem]]
+    else:
+        raise HTTPException(status_code=400, detail=f"Origem desconhecida: {origem}")
+
+    ini = datetime(ano, mes, 1)
+    fim = datetime(ano + 1, 1, 1) if mes == 12 else datetime(ano, mes + 1, 1)
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            # Sequência de OS relevantes por cliente: cada suporte olha a OS
+            # anterior (LAG) — se for instalação, é o 1º suporte pós-instalação;
+            # se for suporte, mede o intervalo entre dois suportes.
+            cur.execute("""
+                WITH rel AS (
+                    SELECT id_cliente, data_abertura,
+                           CASE WHEN id_assunto = ANY(%(inst)s) THEN 'inst' ELSE 'sup' END AS tipo
+                    FROM ixc_os
+                    WHERE id_cliente IS NOT NULL
+                      AND data_abertura IS NOT NULL
+                      AND id_cidade = ANY(%(cidades)s)
+                      AND id_assunto = ANY(%(inst)s || %(sup)s)
+                ), seq AS (
+                    SELECT tipo, data_abertura,
+                           LAG(data_abertura) OVER w AS ant_data,
+                           LAG(tipo)          OVER w AS ant_tipo
+                    FROM rel
+                    WINDOW w AS (PARTITION BY id_cliente ORDER BY data_abertura)
+                )
+                SELECT
+                    AVG(EXTRACT(EPOCH FROM data_abertura - ant_data) / 86400.0)
+                        FILTER (WHERE ant_tipo = 'inst') AS dias_pos_instalacao,
+                    AVG(EXTRACT(EPOCH FROM data_abertura - ant_data) / 86400.0)
+                        FILTER (WHERE ant_tipo = 'sup')  AS dias_entre_suportes
+                FROM seq
+                WHERE tipo = 'sup'
+                  AND data_abertura >= %(ini)s AND data_abertura < %(fim)s
+            """, {"inst": _KPI_OS_INSTALACAO, "sup": _KPI_OS_SUPORTE,
+                  "cidades": cidade_ids, "ini": ini, "fim": fim})
+            dias_pos, dias_entre = cur.fetchone()
+
+            cur.execute("""
+                SELECT AVG(n) FROM (
+                    SELECT id_cliente, COUNT(*) AS n
+                    FROM ixc_os
+                    WHERE id_cliente IS NOT NULL
+                      AND id_cidade = ANY(%(cidades)s)
+                      AND id_assunto = ANY(%(sup)s)
+                      AND data_abertura >= %(fim)s - INTERVAL '60 days'
+                      AND data_abertura <  %(fim)s
+                    GROUP BY id_cliente
+                ) t
+            """, {"sup": _KPI_OS_SUPORTE, "cidades": cidade_ids, "fim": fim})
+            reincidencia = cur.fetchone()[0]
+    finally:
+        conn.close()
+
+    return {
+        "os_primeiro_suporte": round(float(dias_pos), 1)     if dias_pos     is not None else None,
+        "os_entre_suportes":   round(float(dias_entre), 1)   if dias_entre   is not None else None,
+        "os_reincidencia":     round(float(reincidencia), 2) if reincidencia is not None else None,
+    }
 
 
 def _kpi_conta_mes(registros, campo, ano, mes):
@@ -3790,6 +3877,11 @@ def _kpi_valor(tipo, origem, valor_manual, ano, mes, cache):
     """Calcula o valor atual de um KPI; cache evita repetir consultas por origem."""
     if tipo == "manual":
         return float(valor_manual) if valor_manual is not None else None
+    if tipo.startswith("os_"):
+        chave = ("os", origem)
+        if chave not in cache:
+            cache[chave] = _kpi_os_metricas(origem, ano, mes)
+        return cache[chave].get(tipo)
     if origem not in cache:
         cache[origem] = (ixc_vendas(origem), ixc_cancelamentos_ixc(origem))
     vendas, canc = cache[origem]
