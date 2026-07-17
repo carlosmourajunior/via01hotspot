@@ -75,6 +75,12 @@ export default function Financeiro() {
     'Em aberto': m.aberto,
   }))
 
+  const caixa = (dados?.caixa_mensal ?? []).map(m => ({
+    nome: mesLabel(m.mes),
+    Recebido: m.recebido,
+    qtd: m.qtd,
+  }))
+
   return (
     <div className="page">
       <div className="page-header">
@@ -174,6 +180,25 @@ export default function Financeiro() {
                 <Bar dataKey="Faturado"  fill="#3D1278" radius={[3, 3, 0, 0]} />
                 <Bar dataKey="Recebido"  fill="#27ae60" radius={[3, 3, 0, 0]} />
                 <Bar dataKey="Em aberto" fill="#e74c3c" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* ── Caixa: recebido por mês de pagamento ── */}
+          <div className="card chart-card">
+            <h2>Caixa — recebido por mês de pagamento</h2>
+            <div style={{ fontSize: '.75rem', color: '#888', marginBottom: '0.5rem' }}>
+              Quanto entrou de fato em cada mês, independente do vencimento do título.
+            </div>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={caixa} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="nome" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
+                <Tooltip formatter={(v, nome, item) => [
+                  `${brl(v)} (${item?.payload?.qtd ?? 0} títulos)`, 'Recebido',
+                ]} />
+                <Bar dataKey="Recebido" fill="#27ae60" radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

@@ -1,7 +1,12 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
+import {
+  ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip, Legend, ResponsiveContainer,
+} from 'recharts'
 
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+const MESES_ABREV = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
 
 const ORIGEM_LABELS = {
   todas:         '🏢 Via01 — Total',
@@ -45,7 +50,7 @@ function fmtValor(v, unidade) {
   return unidade ? `${s}${unidade}` : s
 }
 
-function KpiCard({ k }) {
+function KpiCard({ k, onClick, selecionado }) {
   const semDados = k.valor === null || k.valor === undefined
   const cor = k.atingido === null || semDados ? '#95a5a6'
     : k.atingido ? '#27ae60'
@@ -53,7 +58,14 @@ function KpiCard({ k }) {
   const barra = k.pct === null ? 0 : Math.min(Math.max(k.pct, 0), 100)
 
   return (
-    <div className="kpi-card" style={{ borderTop: `4px solid ${cor}` }}>
+    <div className="kpi-card"
+      onClick={onClick}
+      title={onClick ? 'Clique para ver a evolução mês a mês' : undefined}
+      style={{
+        borderTop: `4px solid ${cor}`,
+        cursor: onClick ? 'pointer' : 'default',
+        outline: selecionado ? '2px solid var(--roxo)' : 'none',
+      }}>
       <div className="kpi-label" style={{ marginTop: 0, marginBottom: '0.5rem', fontWeight: 600 }}>
         {k.titulo}
       </div>
@@ -62,6 +74,7 @@ function KpiCard({ k }) {
         <>
           <div className="kpi-label">
             Meta: {k.sentido === 'menor' ? '≤ ' : '≥ '}{fmtValor(k.meta, k.unidade)}
+            {k.meta_ajustada && ' (mensal × 12)'}
             {k.pct !== null && ` · ${k.pct.toLocaleString('pt-BR')}%`}
           </div>
           <div style={{ height: 6, borderRadius: 3, background: '#eee', marginTop: '0.6rem', overflow: 'hidden' }}>
@@ -81,17 +94,67 @@ function KpiCard({ k }) {
   )
 }
 
-// Tabela de clientes fora da meta de um KPI de OS (flag "mostrar_lista")
-function ListaProblemas({ kpi, mes, ano }) {
+// Gráfico de evolução mês a mês do KPI, com a linha da meta de cada mês
+function EvolucaoKpi({ kpi, ano, onFechar }) {
   const [dados, setDados] = useState(null)
   const [erro,  setErro]  = useState(null)
 
   useEffect(() => {
     setDados(null); setErro(null)
-    axios.get(`/api/dashboard/kpis/${kpi.id}/lista`, { params: { mes, ano } })
+    axios.get(`/api/dashboard/kpis/${kpi.id}/evolucao`, { params: { ano } })
       .then(r => setDados(r.data))
       .catch(e => setErro(e.response?.data?.detail || e.message))
-  }, [kpi.id, kpi.meta, mes, ano])
+  }, [kpi.id, ano])
+
+  const fmt = (v) => v === null || v === undefined ? '—'
+    : `${Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}${dados?.unidade || ''}`
+
+  const serie = (dados?.serie ?? []).map(p => ({
+    nome:  MESES_ABREV[p.mes - 1],
+    Valor: p.valor,
+    Meta:  p.meta,
+  }))
+
+  return (
+    <div className="card chart-card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <h2>Evolução {ano} — {kpi.titulo}</h2>
+        <button onClick={onFechar}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#888', fontSize: '.85rem' }}>
+          ✕ fechar
+        </button>
+      </div>
+      {erro && <div style={{ color: '#c0392b', padding: '1rem 0' }}>{erro}</div>}
+      {!dados && !erro && <div style={{ color: '#888', padding: '1rem 0' }}>Carregando…</div>}
+      {dados && (
+        <ResponsiveContainer width="100%" height={240}>
+          <ComposedChart data={serie} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <XAxis dataKey="nome" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} />
+            <Tooltip formatter={(v) => fmt(v)} />
+            <Legend />
+            <Bar dataKey="Valor" fill="#3D1278" radius={[3, 3, 0, 0]} />
+            <Line dataKey="Meta" stroke="#e67e22" strokeWidth={2}
+                  strokeDasharray="6 4" dot={false} type="monotone" />
+          </ComposedChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  )
+}
+
+// Tabela de clientes fora da meta de um KPI de OS (flag "mostrar_lista")
+function ListaProblemas({ kpi, mes, ano, periodo }) {
+  const [dados, setDados] = useState(null)
+  const [erro,  setErro]  = useState(null)
+
+  useEffect(() => {
+    setDados(null); setErro(null)
+    axios.get(`/api/dashboard/kpis/${kpi.id}/lista`, { params: { mes, ano, periodo } })
+      .then(r => setDados(r.data))
+      .catch(e => setErro(e.response?.data?.detail || e.message))
+  }, [kpi.id, kpi.meta, mes, ano, periodo])
 
   if (erro) return <div className="card" style={{ color: '#c0392b' }}>Lista "{kpi.titulo}": {erro}</div>
   if (!dados) return null
@@ -100,11 +163,13 @@ function ListaProblemas({ kpi, mes, ano }) {
   const reincidencia = dados.tipo === 'os_reincidencia'
   const colAnterior  = dados.tipo === 'os_primeiro_suporte' ? 'Instalação' : 'Suporte anterior'
 
+  const noPeriodo = periodo === 'ano' ? 'do ano' : 'do mês'
+  const fimPeriodo = periodo === 'ano' ? 'do ano selecionado' : 'do mês selecionado'
   const descricao = financeiro
-    ? 'Clientes que pagaram 50% ou mais dos títulos com atraso nos últimos 6 meses (mínimo de 3 títulos pagos).'
+    ? `Clientes que pagaram 50% ou mais dos títulos com atraso nos 6 meses até o fim ${fimPeriodo} (mínimo de 3 títulos pagos).`
     : reincidencia
-      ? `Clientes com ${fmtValor(dados.meta)} ou mais suportes nos 60 dias até o fim do mês selecionado.`
-      : `Suportes do mês abertos antes de ${fmtValor(dados.meta)} dias ${dados.tipo === 'os_primeiro_suporte' ? 'após a instalação' : 'do suporte anterior'}.`
+      ? `Clientes com ${fmtValor(dados.meta)} ou mais suportes nos 60 dias até o fim ${fimPeriodo}.`
+      : `Suportes ${noPeriodo} abertos antes de ${fmtValor(dados.meta)} dias ${dados.tipo === 'os_primeiro_suporte' ? 'após a instalação' : 'do suporte anterior'}.`
 
   return (
     <div className="card">
@@ -167,20 +232,27 @@ function ListaProblemas({ kpi, mes, ano }) {
 }
 
 // Formulário de criação/edição — kpi=null cria um novo
-function KpiForm({ kpi, tipos, origens, categorias, onSalvo, onCancelar }) {
+function KpiForm({ kpi, tipos, origens, categorias, tiposLista, onSalvo, onCancelar }) {
   const [form, setForm] = useState({
     titulo:       kpi?.titulo       ?? '',
     tipo:         kpi?.tipo         ?? 'vendas',
     origem:       kpi?.origem       ?? 'todas',
-    meta:         kpi?.meta         ?? '',
+    meta:         kpi?.meta_padrao  ?? kpi?.meta ?? '',
     valor_manual: kpi?.valor_manual ?? '',
     unidade:      kpi?.unidade      ?? '',
     categoria:    kpi?.categoria    ?? 'outros',
     ativo:        kpi?.ativo        ?? true,
     mostrar_lista: kpi?.mostrar_lista ?? false,
+    metas_mensais: { ...(kpi?.metas_mensais || {}) },
   })
   const [salvando, setSalvando] = useState(false)
+  const [metasAbertas, setMetasAbertas] = useState(
+    Object.keys(kpi?.metas_mensais || {}).length > 0
+  )
   const set = (c, v) => setForm(f => ({ ...f, [c]: v }))
+  const setMetaMes = (m, v) => setForm(f => ({
+    ...f, metas_mensais: { ...f.metas_mensais, [m]: v },
+  }))
 
   const salvar = async () => {
     if (!form.titulo.trim()) { alert('Informe o título do KPI'); return }
@@ -247,7 +319,7 @@ function KpiForm({ kpi, tipos, origens, categorias, onSalvo, onCancelar }) {
           </label>
         </>
       )}
-      {(form.tipo.startsWith('os_') || form.tipo.startsWith('fin_')) && (
+      {(tiposLista || []).includes(form.tipo) && (
         <label style={{ fontSize: '.8rem', color: '#666', display: 'flex', alignItems: 'center', gap: 4, paddingBottom: 6 }}>
           <input type="checkbox" checked={form.mostrar_lista} onChange={e => set('mostrar_lista', e.target.checked)} />
           Listar clientes fora da meta
@@ -272,25 +344,55 @@ function KpiForm({ kpi, tipos, origens, categorias, onSalvo, onCancelar }) {
           (excelente abaixo de 1,5%; acima de 3% é sinal de alerta).
         </div>
       )}
+
+      {/* Metas específicas por mês (mês vazio usa a meta padrão) */}
+      <div style={{ flexBasis: '100%' }}>
+        <button onClick={() => setMetasAbertas(a => !a)}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                   color: 'var(--roxo)', fontSize: '.78rem', fontFamily: 'inherit' }}>
+          📅 Metas por mês {metasAbertas ? '▴' : '▾'}
+        </button>
+        {metasAbertas && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(70px, 1fr))',
+                        gap: '0.4rem', marginTop: '0.5rem' }}>
+            {MESES_ABREV.map((nome, i) => (
+              <label key={nome} style={{ fontSize: '.7rem', color: '#666' }}>
+                {nome}<br />
+                <input style={{ ...inStyle, width: '100%', padding: '0.3rem 0.4rem' }}
+                       type="number" step="any"
+                       value={form.metas_mensais[String(i + 1)] ?? ''}
+                       onChange={e => setMetaMes(String(i + 1), e.target.value)}
+                       placeholder={form.meta !== '' ? String(form.meta) : '—'} />
+              </label>
+            ))}
+            <div style={{ gridColumn: '1 / -1', fontSize: '.7rem', color: '#999' }}>
+              Meses em branco usam a meta padrão. Na visão anual, a meta dos KPIs de
+              fluxo é a soma das 12 metas mensais.
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
 
 export default function Dashboard({ user }) {
   const hoje = new Date()
+  const [periodo, setPeriodo] = useState('mes')  // 'mes' | 'ano'
   const [mes,  setMes]  = useState(hoje.getMonth() + 1)
   const [ano,  setAno]  = useState(hoje.getFullYear())
   const [dados, setDados]   = useState(null)
   const [erro,  setErro]    = useState(null)
   const [config, setConfig]  = useState(false)  // painel de gerenciamento aberto
   const [editando, setEditando] = useState(null) // id do KPI em edição
+  const [grafico, setGrafico]   = useState(null) // KPI com gráfico de evolução aberto
 
   const carregar = () => {
-    axios.get('/api/dashboard/kpis', { params: { mes, ano, todos: config ? 1 : 0 } })
+    axios.get('/api/dashboard/kpis', { params: { mes, ano, periodo, todos: config ? 1 : 0 } })
       .then(r => { setDados(r.data); setErro(null) })
       .catch(e => setErro(e.response?.data?.detail || e.message))
   }
-  useEffect(carregar, [mes, ano, config])  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(carregar, [mes, ano, periodo, config])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const excluir = async (k) => {
     if (!window.confirm(`Excluir o KPI "${k.titulo}"?`)) return
@@ -308,9 +410,24 @@ export default function Dashboard({ user }) {
       <div className="page-header">
         <h1>Dashboard</h1>
         <div className="page-actions" style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
-          <select style={inStyle} value={mes} onChange={e => setMes(Number(e.target.value))}>
-            {MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-          </select>
+          <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1.5px solid #d1d5db' }}>
+            {[['mes', 'Mensal'], ['ano', 'Anual']].map(([p, label]) => (
+              <button key={p} onClick={() => setPeriodo(p)}
+                style={{
+                  padding: '0.4rem 0.8rem', border: 'none', cursor: 'pointer',
+                  fontSize: '.82rem', fontFamily: 'inherit',
+                  background: periodo === p ? 'var(--roxo)' : '#fff',
+                  color:      periodo === p ? '#fff' : '#555',
+                }}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {periodo === 'mes' && (
+            <select style={inStyle} value={mes} onChange={e => setMes(Number(e.target.value))}>
+              {MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+            </select>
+          )}
           <select style={inStyle} value={ano} onChange={e => setAno(Number(e.target.value))}>
             {anos.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
@@ -346,17 +463,28 @@ export default function Dashboard({ user }) {
               {label}
             </h2>
             <div className="kpi-row">
-              {doGrupo.map(k => <KpiCard key={k.id} k={k} />)}
+              {doGrupo.map(k => (
+                <KpiCard key={k.id} k={k}
+                  selecionado={grafico?.id === k.id}
+                  onClick={(dados.tipos_com_evolucao || []).includes(k.tipo)
+                    ? () => setGrafico(g => g?.id === k.id ? null : k)
+                    : undefined} />
+              ))}
             </div>
           </div>
         )
       })}
 
+      {/* ── Evolução mês a mês do KPI selecionado ── */}
+      {grafico && dados && (
+        <EvolucaoKpi kpi={grafico} ano={ano} onFechar={() => setGrafico(null)} />
+      )}
+
       {/* ── Listas de clientes fora da meta (KPIs com a flag ligada) ── */}
       {dados && visiveis
-        .filter(k => k.mostrar_lista &&
-          (k.tipo.startsWith('fin_') || (k.tipo.startsWith('os_') && k.meta !== null)))
-        .map(k => <ListaProblemas key={`lista-${k.id}`} kpi={k} mes={mes} ano={ano} />)}
+        .filter(k => k.mostrar_lista && (dados.tipos_com_lista || []).includes(k.tipo) &&
+          (k.tipo.startsWith('fin_') || k.meta !== null))
+        .map(k => <ListaProblemas key={`lista-${k.id}`} kpi={k} mes={mes} ano={ano} periodo={periodo} />)}
 
       {/* ── Gerenciamento (admin) ── */}
       {config && dados && (
@@ -364,6 +492,7 @@ export default function Dashboard({ user }) {
           <h2 style={{ color: 'var(--roxo)', marginBottom: '1rem' }}>Gerenciar KPIs</h2>
 
           <KpiForm tipos={dados.tipos} origens={dados.origens} categorias={dados.categorias}
+                   tiposLista={dados.tipos_com_lista}
                    onSalvo={() => carregar()} />
 
           <table style={{ width: '100%', marginTop: '1.2rem', borderCollapse: 'collapse', fontSize: '.85rem' }}>
@@ -384,6 +513,7 @@ export default function Dashboard({ user }) {
                 <tr key={k.id}>
                   <td colSpan={8} style={{ padding: '0.5rem 0' }}>
                     <KpiForm kpi={k} tipos={dados.tipos} origens={dados.origens} categorias={dados.categorias}
+                             tiposLista={dados.tipos_com_lista}
                              onSalvo={() => { setEditando(null); carregar() }}
                              onCancelar={() => setEditando(null)} />
                   </td>
@@ -393,7 +523,12 @@ export default function Dashboard({ user }) {
                   <td style={{ padding: '0.5rem', fontWeight: 600 }}>{k.titulo}</td>
                   <td>{dados.tipos[k.tipo] || k.tipo}</td>
                   <td>{k.tipo === 'manual' ? '—' : (ORIGEM_LABELS[k.origem] || k.origem)}</td>
-                  <td>{fmtValor(k.meta, k.unidade)}</td>
+                  <td>
+                    {fmtValor(k.meta_padrao, k.unidade)}
+                    {Object.keys(k.metas_mensais || {}).length > 0 && (
+                      <span title="Tem metas específicas por mês" style={{ marginLeft: 4 }}>📅</span>
+                    )}
+                  </td>
                   <td>{fmtValor(k.valor, k.unidade)}</td>
                   <td>{k.mostrar_lista ? '✔' : '—'}</td>
                   <td>{k.ativo ? '✔' : '—'}</td>

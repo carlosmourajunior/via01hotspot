@@ -750,6 +750,8 @@ def init_db():
         cur.execute("ALTER TABLE dashboard_kpis ADD COLUMN IF NOT EXISTS mostrar_lista BOOLEAN NOT NULL DEFAULT FALSE")
         # Categoria da seção na Dashboard (vazio = derivada do tipo)
         cur.execute("ALTER TABLE dashboard_kpis ADD COLUMN IF NOT EXISTS categoria TEXT")
+        # Metas específicas por mês ({"1": 50, ..., "12": 70}); mês ausente usa a meta padrão
+        cur.execute("ALTER TABLE dashboard_kpis ADD COLUMN IF NOT EXISTS metas_mensais JSONB")
     conn.commit()
     conn.close()
 
@@ -793,7 +795,8 @@ def _seed_kpis_padrao():
                     ('1º suporte após instalação (dias)',   'os_primeiro_suporte', 'todas',     60, 3, TRUE),
                     ('Entre suportes do mesmo cliente',     'os_entre_suportes',   'todas',     60, 4, FALSE),
                     ('Suportes por cliente em 60 dias',     'os_reincidencia',     'todas',      2, 5, FALSE),
-                    ('Pagadores atrasados frequentes', 'fin_pagadores_atrasados', 'todas', 20, 6, TRUE)
+                    ('Pagadores atrasados frequentes', 'fin_pagadores_atrasados', 'todas', 20, 6, TRUE),
+                    ('Instalações sem suporte em 60 dias', 'os_instal_sem_suporte', 'todas', 80, 7, FALSE)
                 """)
         conn.commit()
     finally:
@@ -3099,6 +3102,26 @@ def ixc_financeiro(origem: str = "todas"):
                 for m in meses_prev
             ]
 
+            # ── Caixa mensal: recebido por mês de PAGAMENTO (últimos 12 meses) ──
+            cur.execute("""
+                SELECT to_char(ar.pagamento_data, 'YYYY-MM') AS mes,
+                       SUM(ar.valor_recebido) AS recebido,
+                       COUNT(*)               AS qtd
+                FROM ixc_areceber ar
+                JOIN ixc_clientes cl ON cl.ixc_id = ar.id_cliente
+                WHERE cl.cidade_ixc_id = ANY(%s)
+                  AND ar.status <> 'C'
+                  AND ar.pagamento_data >= date_trunc('month', CURRENT_DATE) - INTERVAL '11 months'
+                  AND ar.pagamento_data <  date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'
+                GROUP BY 1
+                ORDER BY 1
+            """, (cidade_ids,))
+            caixa_mensal = [{
+                "mes":      r["mes"],
+                "recebido": float(r["recebido"] or 0),
+                "qtd":      int(r["qtd"] or 0),
+            } for r in cur.fetchall()]
+
             # ── Recebido no mês corrente (por data de pagamento — caixa real) ──
             cur.execute("""
                 SELECT COALESCE(SUM(ar.valor_recebido), 0) AS valor, COUNT(*) AS qtd
@@ -3152,6 +3175,7 @@ def ixc_financeiro(origem: str = "todas"):
         "vencido_qtd":       vencido_qtd,
         "devedores":         devedores,
         "mensal":            mensal,
+        "caixa_mensal":      caixa_mensal,
         "previsao":          previsao,
         "arpu":              arpu,
         "contratos_ativos":  contratos_ativos,
@@ -3829,6 +3853,7 @@ KPI_TIPOS = {
     "os_primeiro_suporte": {"label": "Dias até o 1º suporte após instalação (média)", "unidade": " dias", "sentido": "maior", "categoria": "suporte"},
     "os_entre_suportes":   {"label": "Dias entre suportes do mesmo cliente (média)",  "unidade": " dias", "sentido": "maior", "categoria": "suporte"},
     "os_reincidencia":     {"label": "Suportes por cliente em 60 dias (média)",       "unidade": "",      "sentido": "menor", "categoria": "suporte"},
+    "os_instal_sem_suporte": {"label": "% de instalações sem suporte em 60 dias",     "unidade": "%",     "sentido": "maior", "categoria": "suporte"},
     "fin_pagadores_atrasados": {"label": "% de clientes que pagam atrasado com frequência", "unidade": "%", "sentido": "menor", "categoria": "financeiro"},
     "manual":        {"label": "Valor manual",                      "unidade": "",  "sentido": "maior", "categoria": "outros"},
 }
@@ -3836,20 +3861,53 @@ KPI_TIPOS = {
 KPI_CATEGORIAS = {"vendas": "Vendas", "suporte": "Suporte", "financeiro": "Financeiro", "outros": "Outros"}
 KPI_ORIGENS = ["todas"] + list(IXC_CIDADES.keys())
 
+# KPIs de fluxo: na visão anual somam o ano e a meta mensal é multiplicada por 12
+_KPI_TIPOS_FLUXO = {"vendas", "cancelamentos", "crescimento", "churn"}
+
+# Tipos que suportam a lista de clientes fora da meta
+_KPI_TIPOS_COM_LISTA = {"os_primeiro_suporte", "os_entre_suportes", "os_reincidencia",
+                        "fin_pagadores_atrasados"}
+
+# Tipos que suportam o gráfico de evolução mensal (fotos da base e manual não têm histórico)
+_KPI_TIPOS_COM_EVOLUCAO = _KPI_TIPOS_FLUXO | {
+    "os_primeiro_suporte", "os_entre_suportes", "os_reincidencia",
+    "os_instal_sem_suporte", "fin_pagadores_atrasados",
+}
+
+
+def _kpi_meta_do_mes(meta, metas_mensais, mes):
+    """Meta efetiva de um mês: override em metas_mensais ou a meta padrão."""
+    override = (metas_mensais or {}).get(str(mes))
+    if override is not None:
+        return float(override)
+    return float(meta) if meta is not None else None
+
 # Assuntos de OS usados nos KPIs de qualidade (mesmos grupos da tela OS IXC)
 _KPI_OS_INSTALACAO = [1, 18]
 _KPI_OS_SUPORTE    = [2, 5, 7, 8, 9, 10, 11, 12, 13, 14]
 
 
-def _kpi_os_metricas(origem, ano, mes):
-    """Métricas de qualidade sobre OS de suporte, medidas nas OS abertas no mês.
+def _kpi_periodo_limites(ano, mes, periodo):
+    """Limites [ini, fim) e prefixo de data do período: mês selecionado ou ano inteiro."""
+    if periodo == "ano":
+        return datetime(ano, 1, 1), datetime(ano + 1, 1, 1), f"{ano:04d}-"
+    ini = datetime(ano, mes, 1)
+    fim = datetime(ano + 1, 1, 1) if mes == 12 else datetime(ano, mes + 1, 1)
+    return ini, fim, f"{ano:04d}-{mes:02d}"
+
+
+def _kpi_os_metricas(origem, ano, mes, periodo="mes"):
+    """Métricas de qualidade sobre OS de suporte, medidas nas OS abertas no período
+    (mês selecionado ou ano inteiro).
 
     - os_primeiro_suporte: média de dias entre a OS de instalação e o PRIMEIRO
-      suporte do cliente (suportes do mês cuja OS anterior é uma instalação).
+      suporte do cliente (suportes do período cuja OS anterior é uma instalação).
     - os_entre_suportes: média de dias desde o suporte anterior do mesmo cliente
-      (suportes do mês que já tinham suporte antes).
+      (suportes do período que já tinham suporte antes).
     - os_reincidencia: média de suportes por cliente (com ao menos 1) nos 60
-      dias que terminam no fim do mês selecionado.
+      dias que terminam no fim do período selecionado.
+    - os_instal_sem_suporte: % das instalações do período SEM nenhum suporte nos
+      60 dias seguintes (só instalações cuja janela de 60 dias já fechou).
     """
     if origem == "todas":
         cidade_ids = list(IXC_CIDADES.values())
@@ -3858,8 +3916,7 @@ def _kpi_os_metricas(origem, ano, mes):
     else:
         raise HTTPException(status_code=400, detail=f"Origem desconhecida: {origem}")
 
-    ini = datetime(ano, mes, 1)
-    fim = datetime(ano + 1, 1, 1) if mes == 12 else datetime(ano, mes + 1, 1)
+    ini, fim, _ = _kpi_periodo_limites(ano, mes, periodo)
 
     conn = get_conn()
     try:
@@ -3908,6 +3965,27 @@ def _kpi_os_metricas(origem, ano, mes):
                 ) t
             """, {"sup": _KPI_OS_SUPORTE, "cidades": cidade_ids, "fim": fim})
             reincidencia = cur.fetchone()[0]
+
+            # % de instalações do período sem suporte nos 60 dias seguintes;
+            # instalações recentes (janela ainda aberta) ficam de fora
+            cur.execute("""
+                SELECT COUNT(*) AS total,
+                       COUNT(*) FILTER (WHERE NOT EXISTS (
+                           SELECT 1 FROM ixc_os s
+                           WHERE s.id_cliente = i.id_cliente
+                             AND s.id_assunto = ANY(%(sup)s)
+                             AND s.data_abertura >  i.data_abertura
+                             AND s.data_abertura <= i.data_abertura + INTERVAL '60 days'
+                       )) AS sem_suporte
+                FROM ixc_os i
+                WHERE i.id_cliente IS NOT NULL
+                  AND i.id_assunto = ANY(%(inst)s)
+                  AND i.id_cidade = ANY(%(cidades)s)
+                  AND i.data_abertura >= %(ini)s AND i.data_abertura < %(fim)s
+                  AND i.data_abertura + INTERVAL '60 days' <= NOW()
+            """, {"inst": _KPI_OS_INSTALACAO, "sup": _KPI_OS_SUPORTE,
+                  "cidades": cidade_ids, "ini": ini, "fim": fim})
+            inst_total, inst_sem_sup = cur.fetchone()
     finally:
         conn.close()
 
@@ -3915,6 +3993,7 @@ def _kpi_os_metricas(origem, ano, mes):
         "os_primeiro_suporte": round(float(dias_pos), 1)     if dias_pos     is not None else None,
         "os_entre_suportes":   round(float(dias_entre), 1)   if dias_entre   is not None else None,
         "os_reincidencia":     round(float(reincidencia), 2) if reincidencia is not None else None,
+        "os_instal_sem_suporte": round(inst_sem_sup / inst_total * 100, 1) if inst_total else None,
     }
 
 
@@ -3924,8 +4003,8 @@ _KPI_FIN_MESES_JANELA = 6
 _KPI_FIN_MIN_TITULOS  = 3
 
 
-def _kpi_fin_metricas(origem, ano, mes):
-    """% de clientes que pagam atrasado com frequência (janela de 6 meses até o fim do mês)."""
+def _kpi_fin_metricas(origem, ano, mes, periodo="mes"):
+    """% de clientes que pagam atrasado com frequência (janela de 6 meses até o fim do período)."""
     if origem == "todas":
         cidade_ids = list(IXC_CIDADES.values())
     elif origem in IXC_CIDADES:
@@ -3933,7 +4012,7 @@ def _kpi_fin_metricas(origem, ano, mes):
     else:
         raise HTTPException(status_code=400, detail=f"Origem desconhecida: {origem}")
 
-    fim = datetime(ano + 1, 1, 1) if mes == 12 else datetime(ano, mes + 1, 1)
+    _, fim, _ = _kpi_periodo_limites(ano, mes, periodo)
 
     conn = get_conn()
     try:
@@ -3965,30 +4044,30 @@ def _kpi_fin_metricas(origem, ano, mes):
     return {"fin_pagadores_atrasados": pct}
 
 
-def _kpi_conta_mes(registros, campo, ano, mes):
-    prefixo = f"{ano:04d}-{mes:02d}"
+def _kpi_conta_periodo(registros, campo, prefixo):
     return sum(1 for r in registros if (r.get(campo) or "").startswith(prefixo))
 
 
-def _kpi_valor(tipo, origem, valor_manual, ano, mes, cache):
+def _kpi_valor(tipo, origem, valor_manual, ano, mes, cache, periodo="mes"):
     """Calcula o valor atual de um KPI; cache evita repetir consultas por origem."""
     if tipo == "manual":
         return float(valor_manual) if valor_manual is not None else None
     if tipo.startswith("os_"):
         chave = ("os", origem)
         if chave not in cache:
-            cache[chave] = _kpi_os_metricas(origem, ano, mes)
+            cache[chave] = _kpi_os_metricas(origem, ano, mes, periodo)
         return cache[chave].get(tipo)
     if tipo.startswith("fin_"):
         chave = ("fin", origem)
         if chave not in cache:
-            cache[chave] = _kpi_fin_metricas(origem, ano, mes)
+            cache[chave] = _kpi_fin_metricas(origem, ano, mes, periodo)
         return cache[chave].get(tipo)
     if origem not in cache:
         cache[origem] = (ixc_vendas(origem), ixc_cancelamentos_ixc(origem))
     vendas, canc = cache[origem]
-    v    = _kpi_conta_mes(vendas["registros"], "data_ativacao", ano, mes)
-    c    = _kpi_conta_mes(canc["registros"],   "data_abertura", ano, mes)
+    _, _, prefixo = _kpi_periodo_limites(ano, mes, periodo)
+    v    = _kpi_conta_periodo(vendas["registros"], "data_ativacao", prefixo)
+    c    = _kpi_conta_periodo(canc["registros"],   "data_abertura", prefixo)
     base = vendas.get("contratos_ativos") or 0
     if tipo == "vendas":        return v
     if tipo == "cancelamentos": return c
@@ -4000,8 +4079,15 @@ def _kpi_valor(tipo, origem, valor_manual, ano, mes, cache):
 
 
 @app.get("/api/dashboard/kpis")
-def dashboard_listar_kpis(ano: int = None, mes: int = None, todos: bool = False):
-    """KPIs com valor do mês (default: mês corrente). todos=1 inclui inativos (tela de config)."""
+def dashboard_listar_kpis(ano: int = None, mes: int = None, todos: bool = False, periodo: str = "mes"):
+    """KPIs com valor do período (default: mês corrente; periodo='ano' = ano inteiro).
+
+    Na visão anual, os KPIs de fluxo (vendas, cancelamentos, crescimento, churn)
+    somam o ano e a meta cadastrada (mensal) é multiplicada por 12.
+    todos=1 inclui inativos (tela de config).
+    """
+    if periodo not in ("mes", "ano"):
+        raise HTTPException(status_code=400, detail="periodo deve ser 'mes' ou 'ano'")
     hoje = datetime.now(_TZ_LOCAL)
     ano, mes = ano or hoje.year, mes or hoje.month
     conn = get_conn()
@@ -4018,17 +4104,29 @@ def dashboard_listar_kpis(ano: int = None, mes: int = None, todos: bool = False)
     for k in kpis:
         info = KPI_TIPOS.get(k["tipo"], KPI_TIPOS["manual"])
         try:
-            valor = _kpi_valor(k["tipo"], k["origem"], k["valor_manual"], ano, mes, cache)
+            valor = _kpi_valor(k["tipo"], k["origem"], k["valor_manual"], ano, mes, cache, periodo)
         except Exception:
             valor = None  # sem sync/tabela ainda: card mostra "—" em vez de quebrar a tela
-        meta = float(k["meta"]) if k["meta"] is not None else None
+        metas_mensais = k.get("metas_mensais") or {}
+        meta_padrao = float(k["meta"]) if k["meta"] is not None else None
+        meta_ajustada = False
+        if periodo == "mes":
+            meta = _kpi_meta_do_mes(k["meta"], metas_mensais, mes)
+        elif k["tipo"] in _KPI_TIPOS_FLUXO and (meta_padrao is not None or metas_mensais):
+            # Visão anual dos KPIs de fluxo: soma das 12 metas mensais efetivas
+            meta = round(sum(_kpi_meta_do_mes(k["meta"], metas_mensais, m) or 0
+                             for m in range(1, 13)), 2)
+            meta_ajustada = True
+        else:
+            meta = meta_padrao
         pct = atingido = None
         if valor is not None and meta:
             pct      = round(valor / meta * 100, 1)
             atingido = valor >= meta if info["sentido"] == "maior" else valor <= meta
         out.append({
             "id": k["id"], "titulo": k["titulo"], "tipo": k["tipo"], "origem": k["origem"],
-            "meta": meta, "valor": valor,
+            "meta": meta, "meta_padrao": meta_padrao, "meta_ajustada": meta_ajustada,
+            "metas_mensais": metas_mensais, "valor": valor,
             "valor_manual": float(k["valor_manual"]) if k["valor_manual"] is not None else None,
             "unidade": k["unidade"] or info["unidade"], "sentido": info["sentido"],
             "pct": pct, "atingido": atingido, "ordem": k["ordem"], "ativo": k["ativo"],
@@ -4036,10 +4134,12 @@ def dashboard_listar_kpis(ano: int = None, mes: int = None, todos: bool = False)
             "categoria": k.get("categoria") or info.get("categoria", "outros"),
         })
     return {
-        "ano": ano, "mes": mes, "kpis": out,
-        "tipos":      {t: i["label"] for t, i in KPI_TIPOS.items()},
-        "origens":    KPI_ORIGENS,
-        "categorias": KPI_CATEGORIAS,
+        "ano": ano, "mes": mes, "periodo": periodo, "kpis": out,
+        "tipos":           {t: i["label"] for t, i in KPI_TIPOS.items()},
+        "origens":         KPI_ORIGENS,
+        "categorias":      KPI_CATEGORIAS,
+        "tipos_com_lista":    sorted(_KPI_TIPOS_COM_LISTA),
+        "tipos_com_evolucao": sorted(_KPI_TIPOS_COM_EVOLUCAO),
     }
 
 
@@ -4078,6 +4178,22 @@ def _kpi_validar_campos(body: dict, parcial: bool):
         if cat is not None and cat not in KPI_CATEGORIAS:
             raise HTTPException(status_code=400, detail=f"Categoria inválida. Use: {', '.join(KPI_CATEGORIAS)}")
         campos["categoria"] = cat
+    if "metas_mensais" in body:
+        bruto = body.get("metas_mensais") or {}
+        if not isinstance(bruto, dict):
+            raise HTTPException(status_code=400, detail="metas_mensais deve ser um objeto {mês: valor}")
+        metas = {}
+        for chave, valor in bruto.items():
+            if valor in (None, ""):
+                continue
+            try:
+                m = int(chave)
+                if not 1 <= m <= 12:
+                    raise ValueError
+                metas[str(m)] = float(valor)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"Meta mensal inválida no mês '{chave}'")
+        campos["metas_mensais"] = psycopg2.extras.Json(metas) if metas else None
     return campos
 
 
@@ -4124,13 +4240,16 @@ def dashboard_atualizar_kpi(kid: int, request: Request, body: dict):
 
 
 @app.get("/api/dashboard/kpis/{kid}/lista")
-def dashboard_kpi_lista(kid: int, ano: int = None, mes: int = None):
+def dashboard_kpi_lista(kid: int, ano: int = None, mes: int = None, periodo: str = "mes"):
     """Clientes fora da meta de um KPI de OS (corte = a própria meta do KPI).
 
     - os_primeiro_suporte: 1º suporte veio ANTES de `meta` dias após a instalação;
     - os_entre_suportes: suporte a menos de `meta` dias do suporte anterior;
-    - os_reincidencia: `meta` ou mais suportes nos 60 dias até o fim do mês.
+    - os_reincidencia: `meta` ou mais suportes nos 60 dias até o fim do período.
+    periodo='ano' considera as OS do ano inteiro.
     """
+    if periodo not in ("mes", "ano"):
+        raise HTTPException(status_code=400, detail="periodo deve ser 'mes' ou 'ano'")
     hoje = datetime.now(_TZ_LOCAL)
     ano, mes = ano or hoje.year, mes or hoje.month
 
@@ -4141,21 +4260,23 @@ def dashboard_kpi_lista(kid: int, ano: int = None, mes: int = None):
             kpi = cur.fetchone()
             if not kpi:
                 raise HTTPException(status_code=404, detail="KPI não encontrado")
+            if kpi["tipo"] not in _KPI_TIPOS_COM_LISTA:
+                raise HTTPException(status_code=400, detail="Este KPI não possui lista de clientes")
             eh_os  = kpi["tipo"].startswith("os_")
             eh_fin = kpi["tipo"] == "fin_pagadores_atrasados"
-            if not (eh_os or eh_fin):
-                raise HTTPException(status_code=400, detail="Lista disponível apenas para KPIs de OS e financeiros")
-            if eh_os and kpi["meta"] is None:
+            # Corte = meta efetiva do mês (override mensal) ou a meta padrão na visão anual
+            meta_val = (_kpi_meta_do_mes(kpi["meta"], kpi.get("metas_mensais"), mes)
+                        if periodo == "mes"
+                        else (float(kpi["meta"]) if kpi["meta"] is not None else None))
+            if eh_os and meta_val is None:
                 raise HTTPException(status_code=400, detail="Defina a meta do KPI para gerar a lista")
-            meta_val = float(kpi["meta"]) if kpi["meta"] is not None else None
 
             origem = kpi["origem"]
             if origem == "todas":
                 cidade_ids = list(IXC_CIDADES.values())
             else:
                 cidade_ids = [IXC_CIDADES[origem]]
-            ini = datetime(ano, mes, 1)
-            fim = datetime(ano + 1, 1, 1) if mes == 12 else datetime(ano, mes + 1, 1)
+            ini, fim, _ = _kpi_periodo_limites(ano, mes, periodo)
 
             if eh_fin:
                 # Pagadores atrasados frequentes: 50%+ dos títulos pagos com
@@ -4258,6 +4379,49 @@ def dashboard_kpi_lista(kid: int, ano: int = None, mes: int = None):
         "mes":       mes,
         "total":     len(rows),
         "registros": rows,
+    }
+
+
+@app.get("/api/dashboard/kpis/{kid}/evolucao")
+def dashboard_kpi_evolucao(kid: int, ano: int = None):
+    """Série mensal (Jan-Dez) do valor do KPI no ano, com a meta efetiva de cada mês."""
+    hoje = datetime.now(_TZ_LOCAL)
+    ano = ano or hoje.year
+
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT * FROM dashboard_kpis WHERE id = %s", (kid,))
+            kpi = cur.fetchone()
+    finally:
+        conn.close()
+    if not kpi:
+        raise HTTPException(status_code=404, detail="KPI não encontrado")
+    if kpi["tipo"] not in _KPI_TIPOS_COM_EVOLUCAO:
+        raise HTTPException(status_code=400, detail="Evolução mensal não disponível para este tipo de KPI")
+
+    # Cache compartilhado só para os tipos de fluxo (uma busca de vendas/canc
+    # serve os 12 meses); métricas de OS/financeiro dependem do mês
+    cache_fluxo = {}
+    serie = []
+    for m in range(1, 13):
+        cache = cache_fluxo if kpi["tipo"] in _KPI_TIPOS_FLUXO else {}
+        try:
+            valor = _kpi_valor(kpi["tipo"], kpi["origem"], kpi["valor_manual"], ano, m, cache, "mes")
+        except Exception:
+            valor = None
+        serie.append({
+            "mes":   m,
+            "valor": valor,
+            "meta":  _kpi_meta_do_mes(kpi["meta"], kpi.get("metas_mensais"), m),
+        })
+
+    info = KPI_TIPOS.get(kpi["tipo"], KPI_TIPOS["manual"])
+    return {
+        "id": kpi["id"], "titulo": kpi["titulo"], "tipo": kpi["tipo"],
+        "origem": kpi["origem"], "ano": ano,
+        "unidade": kpi["unidade"] or info["unidade"], "sentido": info["sentido"],
+        "serie": serie,
     }
 
 
