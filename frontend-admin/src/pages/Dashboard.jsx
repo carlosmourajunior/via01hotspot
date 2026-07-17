@@ -22,6 +22,20 @@ const btnStyle = {
   fontSize: '.85rem', fontFamily: 'inherit',
 }
 
+function formatPhone(phone) {
+  const d = (phone || '').replace(/\D/g, '')
+  const local = d.startsWith('55') ? d.slice(2) : d
+  if (local.length === 11) return `(${local.slice(0, 2)}) ${local.slice(2, 7)}-${local.slice(7)}`
+  if (local.length === 10) return `(${local.slice(0, 2)}) ${local.slice(2, 6)}-${local.slice(6)}`
+  return phone || '—'
+}
+
+function fmtData(iso) {
+  if (!iso) return '—'
+  const [a, m, d] = iso.split('-')
+  return `${d}/${m}/${a}`
+}
+
 function fmtValor(v, unidade) {
   if (v === null || v === undefined) return '—'
   const n = Number(v)
@@ -67,8 +81,93 @@ function KpiCard({ k }) {
   )
 }
 
+// Tabela de clientes fora da meta de um KPI de OS (flag "mostrar_lista")
+function ListaProblemas({ kpi, mes, ano }) {
+  const [dados, setDados] = useState(null)
+  const [erro,  setErro]  = useState(null)
+
+  useEffect(() => {
+    setDados(null); setErro(null)
+    axios.get(`/api/dashboard/kpis/${kpi.id}/lista`, { params: { mes, ano } })
+      .then(r => setDados(r.data))
+      .catch(e => setErro(e.response?.data?.detail || e.message))
+  }, [kpi.id, kpi.meta, mes, ano])
+
+  if (erro) return <div className="card" style={{ color: '#c0392b' }}>Lista "{kpi.titulo}": {erro}</div>
+  if (!dados) return null
+
+  const financeiro   = dados.tipo === 'fin_pagadores_atrasados'
+  const reincidencia = dados.tipo === 'os_reincidencia'
+  const colAnterior  = dados.tipo === 'os_primeiro_suporte' ? 'Instalação' : 'Suporte anterior'
+
+  const descricao = financeiro
+    ? 'Clientes que pagaram 50% ou mais dos títulos com atraso nos últimos 6 meses (mínimo de 3 títulos pagos).'
+    : reincidencia
+      ? `Clientes com ${fmtValor(dados.meta)} ou mais suportes nos 60 dias até o fim do mês selecionado.`
+      : `Suportes do mês abertos antes de ${fmtValor(dados.meta)} dias ${dados.tipo === 'os_primeiro_suporte' ? 'após a instalação' : 'do suporte anterior'}.`
+
+  return (
+    <div className="card">
+      <h2 style={{ fontSize: '.95rem', fontWeight: 600, color: '#c0392b', marginBottom: '0.35rem' }}>
+        ⚠ Fora da meta — {dados.kpi} ({dados.total})
+      </h2>
+      <div style={{ fontSize: '.75rem', color: '#888', marginBottom: '0.8rem' }}>{descricao}</div>
+      {dados.total === 0 ? (
+        <div style={{ color: '#27ae60', fontSize: '.85rem' }}>Nenhum cliente fora da meta no período. 🎉</div>
+      ) : (
+        <div className="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Cliente</th><th>Fone</th><th>Cidade</th><th>Bairro</th>
+                {financeiro
+                  ? <><th>Títulos pagos</th><th>Com atraso</th><th>% atraso</th><th>Atraso médio</th></>
+                  : reincidencia
+                    ? <><th>Suportes</th><th>Último suporte</th></>
+                    : <><th>{colAnterior}</th><th>Suporte</th><th>Assunto</th><th>Dias</th></>}
+              </tr>
+            </thead>
+            <tbody>
+              {dados.registros.map((r, i) => (
+                <tr key={i}>
+                  <td>{r.nome || `Cliente ${r.id_cliente}`}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}>{formatPhone(r.fone)}</td>
+                  <td style={{ fontSize: '.8rem' }}>{r.cidade}</td>
+                  <td style={{ fontSize: '.8rem' }}>{r.bairro || '—'}</td>
+                  {financeiro ? (
+                    <>
+                      <td>{r.pagos}</td>
+                      <td>{r.atrasados}</td>
+                      <td style={{ fontWeight: 700, color: '#c0392b' }}>{Number(r.pct_atraso).toLocaleString('pt-BR')}%</td>
+                      <td>{r.atraso_medio != null ? `${Number(r.atraso_medio).toLocaleString('pt-BR')} dias` : '—'}</td>
+                    </>
+                  ) : reincidencia ? (
+                    <>
+                      <td style={{ fontWeight: 700, color: '#c0392b' }}>{r.qtd}</td>
+                      <td>{fmtData(r.data_suporte)}</td>
+                    </>
+                  ) : (
+                    <>
+                      <td>{fmtData(r.data_anterior)}</td>
+                      <td>{fmtData(r.data_suporte)}</td>
+                      <td style={{ fontSize: '.8rem' }}>{r.assunto || '—'}</td>
+                      <td style={{ fontWeight: 700, color: '#c0392b', whiteSpace: 'nowrap' }}>
+                        {Number(r.dias).toLocaleString('pt-BR')}
+                      </td>
+                    </>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Formulário de criação/edição — kpi=null cria um novo
-function KpiForm({ kpi, tipos, origens, onSalvo, onCancelar }) {
+function KpiForm({ kpi, tipos, origens, categorias, onSalvo, onCancelar }) {
   const [form, setForm] = useState({
     titulo:       kpi?.titulo       ?? '',
     tipo:         kpi?.tipo         ?? 'vendas',
@@ -76,7 +175,9 @@ function KpiForm({ kpi, tipos, origens, onSalvo, onCancelar }) {
     meta:         kpi?.meta         ?? '',
     valor_manual: kpi?.valor_manual ?? '',
     unidade:      kpi?.unidade      ?? '',
+    categoria:    kpi?.categoria    ?? 'outros',
     ativo:        kpi?.ativo        ?? true,
+    mostrar_lista: kpi?.mostrar_lista ?? false,
   })
   const [salvando, setSalvando] = useState(false)
   const set = (c, v) => setForm(f => ({ ...f, [c]: v }))
@@ -87,6 +188,8 @@ function KpiForm({ kpi, tipos, origens, onSalvo, onCancelar }) {
     try {
       const body = { ...form, meta: form.meta === '' ? null : form.meta,
                      valor_manual: form.valor_manual === '' ? null : form.valor_manual }
+      // Categoria só é escolhida à mão nos KPIs manuais; nos demais é derivada do tipo
+      if (form.tipo !== 'manual') delete body.categoria
       if (kpi) await axios.patch(`/api/dashboard/kpis/${kpi.id}`, body)
       else     await axios.post('/api/dashboard/kpis', body)
       onSalvo()
@@ -136,7 +239,19 @@ function KpiForm({ kpi, tipos, origens, onSalvo, onCancelar }) {
             <input style={{ ...inStyle, width: 60 }} value={form.unidade}
                    onChange={e => set('unidade', e.target.value)} placeholder="%" />
           </label>
+          <label style={{ fontSize: '.75rem', color: '#666' }}>
+            Categoria<br />
+            <select style={inStyle} value={form.categoria} onChange={e => set('categoria', e.target.value)}>
+              {Object.entries(categorias || {}).map(([c, label]) => <option key={c} value={c}>{label}</option>)}
+            </select>
+          </label>
         </>
+      )}
+      {(form.tipo.startsWith('os_') || form.tipo.startsWith('fin_')) && (
+        <label style={{ fontSize: '.8rem', color: '#666', display: 'flex', alignItems: 'center', gap: 4, paddingBottom: 6 }}>
+          <input type="checkbox" checked={form.mostrar_lista} onChange={e => set('mostrar_lista', e.target.checked)} />
+          Listar clientes fora da meta
+        </label>
       )}
       {kpi && (
         <label style={{ fontSize: '.8rem', color: '#666', display: 'flex', alignItems: 'center', gap: 4, paddingBottom: 6 }}>
@@ -219,18 +334,36 @@ export default function Dashboard({ user }) {
         </div>
       )}
 
-      {dados && visiveis.length > 0 && (
-        <div className="kpi-row">
-          {visiveis.map(k => <KpiCard key={k.id} k={k} />)}
-        </div>
-      )}
+      {/* ── Cards agrupados por categoria ── */}
+      {dados && Object.entries(dados.categorias || {}).map(([cat, label]) => {
+        const doGrupo = visiveis.filter(k => k.categoria === cat)
+        if (doGrupo.length === 0) return null
+        return (
+          <div key={cat}>
+            <h2 style={{ fontSize: '.85rem', fontWeight: 700, color: 'var(--roxo)',
+                         textTransform: 'uppercase', letterSpacing: '0.06em',
+                         margin: '0.4rem 0 0.7rem' }}>
+              {label}
+            </h2>
+            <div className="kpi-row">
+              {doGrupo.map(k => <KpiCard key={k.id} k={k} />)}
+            </div>
+          </div>
+        )
+      })}
+
+      {/* ── Listas de clientes fora da meta (KPIs com a flag ligada) ── */}
+      {dados && visiveis
+        .filter(k => k.mostrar_lista &&
+          (k.tipo.startsWith('fin_') || (k.tipo.startsWith('os_') && k.meta !== null)))
+        .map(k => <ListaProblemas key={`lista-${k.id}`} kpi={k} mes={mes} ano={ano} />)}
 
       {/* ── Gerenciamento (admin) ── */}
       {config && dados && (
         <div className="card">
           <h2 style={{ color: 'var(--roxo)', marginBottom: '1rem' }}>Gerenciar KPIs</h2>
 
-          <KpiForm tipos={dados.tipos} origens={dados.origens}
+          <KpiForm tipos={dados.tipos} origens={dados.origens} categorias={dados.categorias}
                    onSalvo={() => carregar()} />
 
           <table style={{ width: '100%', marginTop: '1.2rem', borderCollapse: 'collapse', fontSize: '.85rem' }}>
@@ -241,6 +374,7 @@ export default function Dashboard({ user }) {
                 <th>Cidade</th>
                 <th>Meta</th>
                 <th>Valor atual</th>
+                <th>Lista</th>
                 <th>Visível</th>
                 <th></th>
               </tr>
@@ -248,8 +382,8 @@ export default function Dashboard({ user }) {
             <tbody>
               {dados.kpis.map(k => editando === k.id ? (
                 <tr key={k.id}>
-                  <td colSpan={7} style={{ padding: '0.5rem 0' }}>
-                    <KpiForm kpi={k} tipos={dados.tipos} origens={dados.origens}
+                  <td colSpan={8} style={{ padding: '0.5rem 0' }}>
+                    <KpiForm kpi={k} tipos={dados.tipos} origens={dados.origens} categorias={dados.categorias}
                              onSalvo={() => { setEditando(null); carregar() }}
                              onCancelar={() => setEditando(null)} />
                   </td>
@@ -261,6 +395,7 @@ export default function Dashboard({ user }) {
                   <td>{k.tipo === 'manual' ? '—' : (ORIGEM_LABELS[k.origem] || k.origem)}</td>
                   <td>{fmtValor(k.meta, k.unidade)}</td>
                   <td>{fmtValor(k.valor, k.unidade)}</td>
+                  <td>{k.mostrar_lista ? '✔' : '—'}</td>
                   <td>{k.ativo ? '✔' : '—'}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>
                     <button style={{ ...btnStyle, padding: '0.25rem 0.6rem', fontSize: '.78rem' }}

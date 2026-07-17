@@ -746,6 +746,10 @@ def init_db():
                 criado_em    TIMESTAMP DEFAULT NOW()
             )
         """)
+        # Lista de clientes fora da meta (KPIs de OS): exibida abaixo dos cards
+        cur.execute("ALTER TABLE dashboard_kpis ADD COLUMN IF NOT EXISTS mostrar_lista BOOLEAN NOT NULL DEFAULT FALSE")
+        # Categoria da seção na Dashboard (vazio = derivada do tipo)
+        cur.execute("ALTER TABLE dashboard_kpis ADD COLUMN IF NOT EXISTS categoria TEXT")
     conn.commit()
     conn.close()
 
@@ -783,12 +787,13 @@ def _seed_kpis_padrao():
             cur.execute("SELECT COUNT(*) FROM dashboard_kpis")
             if cur.fetchone()[0] == 0:
                 cur.execute("""
-                    INSERT INTO dashboard_kpis (titulo, tipo, origem, meta, ordem) VALUES
-                    ('Vendas Ouro Fino',                    'vendas',              'ouro_fino', 60, 1),
-                    ('Churn Via01',                         'churn',               'todas',      2, 2),
-                    ('1º suporte após instalação (dias)',   'os_primeiro_suporte', 'todas',     60, 3),
-                    ('Entre suportes do mesmo cliente',     'os_entre_suportes',   'todas',     60, 4),
-                    ('Suportes por cliente em 60 dias',     'os_reincidencia',     'todas',      2, 5)
+                    INSERT INTO dashboard_kpis (titulo, tipo, origem, meta, ordem, mostrar_lista) VALUES
+                    ('Vendas Ouro Fino',                    'vendas',              'ouro_fino', 60, 1, FALSE),
+                    ('Churn Via01',                         'churn',               'todas',      2, 2, FALSE),
+                    ('1º suporte após instalação (dias)',   'os_primeiro_suporte', 'todas',     60, 3, TRUE),
+                    ('Entre suportes do mesmo cliente',     'os_entre_suportes',   'todas',     60, 4, FALSE),
+                    ('Suportes por cliente em 60 dias',     'os_reincidencia',     'todas',      2, 5, FALSE),
+                    ('Pagadores atrasados frequentes', 'fin_pagadores_atrasados', 'todas', 20, 6, TRUE)
                 """)
         conn.commit()
     finally:
@@ -3815,17 +3820,20 @@ def resumo(origem: str = "ouro_fino"):
 # (mesma lógica das telas Vendas: manuais incluídos, ocultos/desconsiderados
 # fora). 'manual' mostra um valor digitado à mão (valor_manual).
 KPI_TIPOS = {
-    "vendas":        {"label": "Vendas do mês (novas instalações)", "unidade": "",  "sentido": "maior"},
-    "cancelamentos": {"label": "Cancelamentos do mês",              "unidade": "",  "sentido": "menor"},
-    "crescimento":   {"label": "Crescimento líquido do mês",        "unidade": "",  "sentido": "maior"},
-    "churn":         {"label": "Churn mensal (% da base ativa)",    "unidade": "%", "sentido": "menor"},
-    "base_ativa":    {"label": "Contratos ativos (base atual)",     "unidade": "",  "sentido": "maior"},
-    "logins_ativos": {"label": "Logins ativos (pontos instalados)", "unidade": "",  "sentido": "maior"},
-    "os_primeiro_suporte": {"label": "Dias até o 1º suporte após instalação (média)", "unidade": " dias", "sentido": "maior"},
-    "os_entre_suportes":   {"label": "Dias entre suportes do mesmo cliente (média)",  "unidade": " dias", "sentido": "maior"},
-    "os_reincidencia":     {"label": "Suportes por cliente em 60 dias (média)",       "unidade": "",      "sentido": "menor"},
-    "manual":        {"label": "Valor manual",                      "unidade": "",  "sentido": "maior"},
+    "vendas":        {"label": "Vendas do mês (novas instalações)", "unidade": "",  "sentido": "maior", "categoria": "vendas"},
+    "cancelamentos": {"label": "Cancelamentos do mês",              "unidade": "",  "sentido": "menor", "categoria": "vendas"},
+    "crescimento":   {"label": "Crescimento líquido do mês",        "unidade": "",  "sentido": "maior", "categoria": "vendas"},
+    "churn":         {"label": "Churn mensal (% da base ativa)",    "unidade": "%", "sentido": "menor", "categoria": "vendas"},
+    "base_ativa":    {"label": "Contratos ativos (base atual)",     "unidade": "",  "sentido": "maior", "categoria": "vendas"},
+    "logins_ativos": {"label": "Logins ativos (pontos instalados)", "unidade": "",  "sentido": "maior", "categoria": "vendas"},
+    "os_primeiro_suporte": {"label": "Dias até o 1º suporte após instalação (média)", "unidade": " dias", "sentido": "maior", "categoria": "suporte"},
+    "os_entre_suportes":   {"label": "Dias entre suportes do mesmo cliente (média)",  "unidade": " dias", "sentido": "maior", "categoria": "suporte"},
+    "os_reincidencia":     {"label": "Suportes por cliente em 60 dias (média)",       "unidade": "",      "sentido": "menor", "categoria": "suporte"},
+    "fin_pagadores_atrasados": {"label": "% de clientes que pagam atrasado com frequência", "unidade": "%", "sentido": "menor", "categoria": "financeiro"},
+    "manual":        {"label": "Valor manual",                      "unidade": "",  "sentido": "maior", "categoria": "outros"},
 }
+# Ordem de exibição das seções na Dashboard
+KPI_CATEGORIAS = {"vendas": "Vendas", "suporte": "Suporte", "financeiro": "Financeiro", "outros": "Outros"}
 KPI_ORIGENS = ["todas"] + list(IXC_CIDADES.keys())
 
 # Assuntos de OS usados nos KPIs de qualidade (mesmos grupos da tela OS IXC)
@@ -3910,6 +3918,53 @@ def _kpi_os_metricas(origem, ano, mes):
     }
 
 
+# Janela e critério do "pagador atrasado frequente": entre os clientes com ao
+# menos 3 títulos pagos nos últimos 6 meses, quem pagou 50%+ deles após o vencimento
+_KPI_FIN_MESES_JANELA = 6
+_KPI_FIN_MIN_TITULOS  = 3
+
+
+def _kpi_fin_metricas(origem, ano, mes):
+    """% de clientes que pagam atrasado com frequência (janela de 6 meses até o fim do mês)."""
+    if origem == "todas":
+        cidade_ids = list(IXC_CIDADES.values())
+    elif origem in IXC_CIDADES:
+        cidade_ids = [IXC_CIDADES[origem]]
+    else:
+        raise HTTPException(status_code=400, detail=f"Origem desconhecida: {origem}")
+
+    fim = datetime(ano + 1, 1, 1) if mes == 12 else datetime(ano, mes + 1, 1)
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT COUNT(*) AS clientes,
+                       COUNT(*) FILTER (WHERE atrasados * 2 >= pagos) AS atrasadores
+                FROM (
+                    SELECT ar.id_cliente,
+                           COUNT(*) AS pagos,
+                           COUNT(*) FILTER (WHERE ar.pagamento_data > ar.data_vencimento) AS atrasados
+                    FROM ixc_areceber ar
+                    JOIN ixc_clientes cl ON cl.ixc_id = ar.id_cliente
+                    WHERE cl.cidade_ixc_id = ANY(%(cidades)s)
+                      AND ar.status <> 'C'
+                      AND ar.pagamento_data IS NOT NULL
+                      AND ar.data_vencimento IS NOT NULL
+                      AND ar.pagamento_data >= %(fim)s - INTERVAL '{_KPI_FIN_MESES_JANELA} months'
+                      AND ar.pagamento_data <  %(fim)s
+                    GROUP BY ar.id_cliente
+                    HAVING COUNT(*) >= %(min_titulos)s
+                ) t
+            """, {"cidades": cidade_ids, "fim": fim, "min_titulos": _KPI_FIN_MIN_TITULOS})
+            clientes, atrasadores = cur.fetchone()
+    finally:
+        conn.close()
+
+    pct = round(atrasadores / clientes * 100, 1) if clientes else None
+    return {"fin_pagadores_atrasados": pct}
+
+
 def _kpi_conta_mes(registros, campo, ano, mes):
     prefixo = f"{ano:04d}-{mes:02d}"
     return sum(1 for r in registros if (r.get(campo) or "").startswith(prefixo))
@@ -3923,6 +3978,11 @@ def _kpi_valor(tipo, origem, valor_manual, ano, mes, cache):
         chave = ("os", origem)
         if chave not in cache:
             cache[chave] = _kpi_os_metricas(origem, ano, mes)
+        return cache[chave].get(tipo)
+    if tipo.startswith("fin_"):
+        chave = ("fin", origem)
+        if chave not in cache:
+            cache[chave] = _kpi_fin_metricas(origem, ano, mes)
         return cache[chave].get(tipo)
     if origem not in cache:
         cache[origem] = (ixc_vendas(origem), ixc_cancelamentos_ixc(origem))
@@ -3972,11 +4032,14 @@ def dashboard_listar_kpis(ano: int = None, mes: int = None, todos: bool = False)
             "valor_manual": float(k["valor_manual"]) if k["valor_manual"] is not None else None,
             "unidade": k["unidade"] or info["unidade"], "sentido": info["sentido"],
             "pct": pct, "atingido": atingido, "ordem": k["ordem"], "ativo": k["ativo"],
+            "mostrar_lista": k.get("mostrar_lista", False),
+            "categoria": k.get("categoria") or info.get("categoria", "outros"),
         })
     return {
         "ano": ano, "mes": mes, "kpis": out,
-        "tipos":   {t: i["label"] for t, i in KPI_TIPOS.items()},
-        "origens": KPI_ORIGENS,
+        "tipos":      {t: i["label"] for t, i in KPI_TIPOS.items()},
+        "origens":    KPI_ORIGENS,
+        "categorias": KPI_CATEGORIAS,
     }
 
 
@@ -4008,6 +4071,13 @@ def _kpi_validar_campos(body: dict, parcial: bool):
         campos["ordem"] = int(body["ordem"])
     if "ativo" in body:
         campos["ativo"] = bool(body["ativo"])
+    if "mostrar_lista" in body:
+        campos["mostrar_lista"] = bool(body["mostrar_lista"])
+    if "categoria" in body:
+        cat = (body.get("categoria") or "").strip() or None
+        if cat is not None and cat not in KPI_CATEGORIAS:
+            raise HTTPException(status_code=400, detail=f"Categoria inválida. Use: {', '.join(KPI_CATEGORIAS)}")
+        campos["categoria"] = cat
     return campos
 
 
@@ -4051,6 +4121,144 @@ def dashboard_atualizar_kpi(kid: int, request: Request, body: dict):
     finally:
         conn.close()
     return {"ok": True}
+
+
+@app.get("/api/dashboard/kpis/{kid}/lista")
+def dashboard_kpi_lista(kid: int, ano: int = None, mes: int = None):
+    """Clientes fora da meta de um KPI de OS (corte = a própria meta do KPI).
+
+    - os_primeiro_suporte: 1º suporte veio ANTES de `meta` dias após a instalação;
+    - os_entre_suportes: suporte a menos de `meta` dias do suporte anterior;
+    - os_reincidencia: `meta` ou mais suportes nos 60 dias até o fim do mês.
+    """
+    hoje = datetime.now(_TZ_LOCAL)
+    ano, mes = ano or hoje.year, mes or hoje.month
+
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT * FROM dashboard_kpis WHERE id = %s", (kid,))
+            kpi = cur.fetchone()
+            if not kpi:
+                raise HTTPException(status_code=404, detail="KPI não encontrado")
+            eh_os  = kpi["tipo"].startswith("os_")
+            eh_fin = kpi["tipo"] == "fin_pagadores_atrasados"
+            if not (eh_os or eh_fin):
+                raise HTTPException(status_code=400, detail="Lista disponível apenas para KPIs de OS e financeiros")
+            if eh_os and kpi["meta"] is None:
+                raise HTTPException(status_code=400, detail="Defina a meta do KPI para gerar a lista")
+            meta_val = float(kpi["meta"]) if kpi["meta"] is not None else None
+
+            origem = kpi["origem"]
+            if origem == "todas":
+                cidade_ids = list(IXC_CIDADES.values())
+            else:
+                cidade_ids = [IXC_CIDADES[origem]]
+            ini = datetime(ano, mes, 1)
+            fim = datetime(ano + 1, 1, 1) if mes == 12 else datetime(ano, mes + 1, 1)
+
+            if eh_fin:
+                # Pagadores atrasados frequentes: 50%+ dos títulos pagos com
+                # atraso na janela de 6 meses (mín. 3 títulos pagos)
+                cur.execute(f"""
+                    SELECT t.id_cliente, t.pagos, t.atrasados,
+                           ROUND(t.atrasados * 100.0 / t.pagos, 0) AS pct_atraso,
+                           ROUND(t.atraso_medio::numeric, 1)       AS atraso_medio,
+                           cl.nome, cl.fone, cl.bairro, cl.cidade_ixc_id
+                    FROM (
+                        SELECT ar.id_cliente,
+                               COUNT(*) AS pagos,
+                               COUNT(*) FILTER (WHERE ar.pagamento_data > ar.data_vencimento) AS atrasados,
+                               AVG(ar.pagamento_data - ar.data_vencimento)
+                                   FILTER (WHERE ar.pagamento_data > ar.data_vencimento) AS atraso_medio
+                        FROM ixc_areceber ar
+                        JOIN ixc_clientes cl2 ON cl2.ixc_id = ar.id_cliente
+                        WHERE cl2.cidade_ixc_id = ANY(%(cidades)s)
+                          AND ar.status <> 'C'
+                          AND ar.pagamento_data IS NOT NULL
+                          AND ar.data_vencimento IS NOT NULL
+                          AND ar.pagamento_data >= %(fim)s - INTERVAL '{_KPI_FIN_MESES_JANELA} months'
+                          AND ar.pagamento_data <  %(fim)s
+                        GROUP BY ar.id_cliente
+                        HAVING COUNT(*) >= %(min_titulos)s
+                           AND COUNT(*) FILTER (WHERE ar.pagamento_data > ar.data_vencimento) * 2 >= COUNT(*)
+                    ) t
+                    LEFT JOIN ixc_clientes cl ON cl.ixc_id = t.id_cliente
+                    ORDER BY pct_atraso DESC, t.atrasados DESC
+                """, {"cidades": cidade_ids, "fim": fim, "min_titulos": _KPI_FIN_MIN_TITULOS})
+            elif kpi["tipo"] == "os_reincidencia":
+                cur.execute("""
+                    SELECT t.id_cliente, t.qtd,
+                           to_char(t.ultimo, 'YYYY-MM-DD') AS data_suporte,
+                           cl.nome, cl.fone, cl.bairro, cl.cidade_ixc_id
+                    FROM (
+                        SELECT id_cliente, COUNT(*) AS qtd, MAX(data_abertura) AS ultimo
+                        FROM ixc_os
+                        WHERE id_cliente IS NOT NULL
+                          AND id_cidade = ANY(%(cidades)s)
+                          AND id_assunto = ANY(%(sup)s)
+                          AND data_abertura >= %(fim)s - INTERVAL '60 days'
+                          AND data_abertura <  %(fim)s
+                        GROUP BY id_cliente
+                        HAVING COUNT(*) >= %(meta)s
+                    ) t
+                    LEFT JOIN ixc_clientes cl ON cl.ixc_id = t.id_cliente
+                    ORDER BY t.qtd DESC, t.ultimo DESC
+                """, {"sup": _KPI_OS_SUPORTE, "cidades": cidade_ids,
+                      "fim": fim, "meta": meta_val})
+            else:
+                ant = "inst" if kpi["tipo"] == "os_primeiro_suporte" else "sup"
+                cur.execute("""
+                    WITH rel AS (
+                        SELECT id_cliente, data_abertura, assunto,
+                               CASE WHEN id_assunto = ANY(%(inst)s) THEN 'inst' ELSE 'sup' END AS tipo
+                        FROM ixc_os
+                        WHERE id_cliente IS NOT NULL
+                          AND data_abertura IS NOT NULL
+                          AND id_cidade = ANY(%(cidades)s)
+                          AND id_assunto = ANY(%(inst)s || %(sup)s)
+                    ), seq AS (
+                        SELECT id_cliente, tipo, data_abertura, assunto,
+                               LAG(data_abertura) OVER w AS ant_data,
+                               LAG(tipo)          OVER w AS ant_tipo
+                        FROM rel
+                        WINDOW w AS (PARTITION BY id_cliente ORDER BY data_abertura)
+                    )
+                    SELECT s.id_cliente,
+                           to_char(s.ant_data,      'YYYY-MM-DD') AS data_anterior,
+                           to_char(s.data_abertura, 'YYYY-MM-DD') AS data_suporte,
+                           s.assunto,
+                           ROUND((EXTRACT(EPOCH FROM s.data_abertura - s.ant_data) / 86400.0)::numeric, 1) AS dias,
+                           cl.nome, cl.fone, cl.bairro, cl.cidade_ixc_id
+                    FROM seq s
+                    LEFT JOIN ixc_clientes cl ON cl.ixc_id = s.id_cliente
+                    WHERE s.tipo = 'sup' AND s.ant_tipo = %(ant)s
+                      AND s.data_abertura >= %(ini)s AND s.data_abertura < %(fim)s
+                      AND EXTRACT(EPOCH FROM s.data_abertura - s.ant_data) / 86400.0 < %(meta)s
+                    ORDER BY dias
+                """, {"inst": _KPI_OS_INSTALACAO, "sup": _KPI_OS_SUPORTE,
+                      "cidades": cidade_ids, "ant": ant,
+                      "ini": ini, "fim": fim, "meta": meta_val})
+            rows = [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+    cidades_label = {v: k.replace("_", " ").title() for k, v in IXC_CIDADES.items()}
+    for r in rows:
+        r["cidade"] = cidades_label.get(r.pop("cidade_ixc_id", None), "—")
+        for campo in ("dias", "pct_atraso", "atraso_medio"):
+            if r.get(campo) is not None:
+                r[campo] = float(r[campo])
+
+    return {
+        "kpi":       kpi["titulo"],
+        "tipo":      kpi["tipo"],
+        "meta":      meta_val,
+        "ano":       ano,
+        "mes":       mes,
+        "total":     len(rows),
+        "registros": rows,
+    }
 
 
 @app.delete("/api/dashboard/kpis/{kid}")
