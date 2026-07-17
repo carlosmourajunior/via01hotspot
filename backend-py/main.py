@@ -3068,38 +3068,59 @@ def ixc_financeiro(origem: str = "todas"):
                 "aberto":   float(r["aberto"] or 0),
             } for r in cur.fetchall()]
 
-            # ── Previsão de recebimento (títulos em aberto a vencer) ──
+            # ── A receber por mês-calendário (títulos em aberto; mês corrente + 2) ──
             cur.execute("""
-                SELECT
-                    CASE
-                        WHEN ar.data_vencimento - CURRENT_DATE <= 30 THEN '30'
-                        WHEN ar.data_vencimento - CURRENT_DATE <= 60 THEN '60'
-                        WHEN ar.data_vencimento - CURRENT_DATE <= 90 THEN '90'
-                        ELSE '90+'
-                    END AS faixa,
-                    SUM(ar.valor_aberto) AS valor,
-                    COUNT(*)             AS qtd
+                SELECT to_char(ar.data_vencimento, 'YYYY-MM') AS mes,
+                       SUM(ar.valor_aberto) AS valor,
+                       COUNT(*)             AS qtd
                 FROM ixc_areceber ar
                 JOIN ixc_clientes cl ON cl.ixc_id = ar.id_cliente
                 WHERE cl.cidade_ixc_id = ANY(%s)
                   AND ar.status <> 'C'
                   AND ar.valor_aberto > 0
-                  AND ar.data_vencimento >= CURRENT_DATE
+                  AND ar.data_vencimento >= date_trunc('month', CURRENT_DATE)
+                  AND ar.data_vencimento <  date_trunc('month', CURRENT_DATE) + INTERVAL '3 months'
                 GROUP BY 1
             """, (cidade_ids,))
-            prev_map = {r["faixa"]: r for r in cur.fetchall()}
+            prev_map = {r["mes"]: r for r in cur.fetchall()}
+            hoje_dt = datetime.now()
+            meses_prev = []
+            for i in range(3):
+                m = hoje_dt.month + i
+                meses_prev.append(f"{hoje_dt.year + (m - 1) // 12}-{(m - 1) % 12 + 1:02d}")
             previsao = [
-                {"faixa": f, "valor": float(prev_map.get(f, {}).get("valor") or 0),
-                 "qtd": int(prev_map.get(f, {}).get("qtd") or 0)}
-                for f in ("30", "60", "90")
+                {"mes": m, "valor": float(prev_map.get(m, {}).get("valor") or 0),
+                 "qtd": int(prev_map.get(m, {}).get("qtd") or 0)}
+                for m in meses_prev
             ]
 
-            # ── Contratos ativos (para ARPU) e última sync ──
+            # ── Recebido no mês corrente (por data de pagamento — caixa real) ──
+            cur.execute("""
+                SELECT COALESCE(SUM(ar.valor_recebido), 0) AS valor, COUNT(*) AS qtd
+                FROM ixc_areceber ar
+                JOIN ixc_clientes cl ON cl.ixc_id = ar.id_cliente
+                WHERE cl.cidade_ixc_id = ANY(%s)
+                  AND ar.status <> 'C'
+                  AND ar.pagamento_data >= date_trunc('month', CURRENT_DATE)
+                  AND ar.pagamento_data <  date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'
+            """, (cidade_ids,))
+            receb = cur.fetchone()
+            recebido_mes     = float(receb["valor"] or 0)
+            recebido_mes_qtd = int(receb["qtd"] or 0)
+
+            # ── Base ativa (para ARPU) e última sync ──
             cur.execute(
                 "SELECT COUNT(*) AS n FROM ixc_contratos WHERE cidade_ixc_id = ANY(%s) AND status = 'A'",
                 (cidade_ids,)
             )
             contratos_ativos = cur.fetchone()["n"]
+            # Logins ativos = pontos instalados (um contrato pode ter vários);
+            # é o divisor correto do ticket médio
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM ixc_logins WHERE cidade_ixc_id = ANY(%s) AND ativo = 'S'",
+                (cidade_ids,)
+            )
+            logins_ativos = cur.fetchone()["n"]
             cur.execute("SELECT MAX(synced_at) AS ts, COUNT(*) AS n FROM ixc_areceber")
             meta = cur.fetchone()
     finally:
@@ -3108,9 +3129,16 @@ def ixc_financeiro(origem: str = "todas"):
     vencido_total = sum(a["valor"] for a in aging)
     vencido_qtd = sum(a["qtd"] for a in aging)
     # ARPU: faturamento do último mês fechado ÷ contratos ativos
-    mes_passado = [m for m in mensal if m["mes"] < datetime.now().strftime("%Y-%m")]
+    mes_atual_str = datetime.now().strftime("%Y-%m")
+    mes_passado = [m for m in mensal if m["mes"] < mes_atual_str]
     faturado_mes_anterior = mes_passado[-1]["faturado"] if mes_passado else 0
-    arpu = round(faturado_mes_anterior / contratos_ativos, 2) if contratos_ativos else 0
+    # ARPU por login ativo (ponto instalado); cai para contratos se o sync de
+    # logins ainda não rodou nesta base
+    base_arpu = logins_ativos or contratos_ativos
+    arpu = round(faturado_mes_anterior / base_arpu, 2) if base_arpu else 0
+    # Faturado no mês corrente (por vencimento) — já calculado na série mensal
+    mes_atual_row = next((m for m in mensal if m["mes"] == mes_atual_str), None)
+    faturado_mes = mes_atual_row["faturado"] if mes_atual_row else 0
 
     return {
         "origem":            origem,
@@ -3122,6 +3150,10 @@ def ixc_financeiro(origem: str = "todas"):
         "previsao":          previsao,
         "arpu":              arpu,
         "contratos_ativos":  contratos_ativos,
+        "logins_ativos":     logins_ativos,
+        "faturado_mes":      round(faturado_mes, 2),
+        "recebido_mes":      round(recebido_mes, 2),
+        "recebido_mes_qtd":  recebido_mes_qtd,
         "faturado_mes_anterior": round(faturado_mes_anterior, 2),
         "titulos_base":      meta["n"],
         "last_sync":         meta["ts"].isoformat() if meta["ts"] else None,
@@ -3655,6 +3687,14 @@ def ixc_vendas(origem: str = "borda_mata"):
                 (cidade_ids,)
             )
             contratos_ativos = cur.fetchone()["n"]
+
+            # Logins ativos = pontos de internet instalados. Um contrato pode ter
+            # mais de um ponto, então esta é a visão real do tamanho da base
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM ixc_logins WHERE cidade_ixc_id = ANY(%s) AND ativo = 'S'",
+                (cidade_ids,)
+            )
+            logins_ativos = cur.fetchone()["n"]
     finally:
         conn.close()
 
@@ -3683,6 +3723,7 @@ def ixc_vendas(origem: str = "borda_mata"):
     return {
         "total":            len(registros),
         "contratos_ativos": contratos_ativos,
+        "logins_ativos":    logins_ativos,
         "registros":        registros,
         "desconsiderados":  desconsiderados,
         "origem":           origem,
@@ -3779,6 +3820,7 @@ KPI_TIPOS = {
     "crescimento":   {"label": "Crescimento líquido do mês",        "unidade": "",  "sentido": "maior"},
     "churn":         {"label": "Churn mensal (% da base ativa)",    "unidade": "%", "sentido": "menor"},
     "base_ativa":    {"label": "Contratos ativos (base atual)",     "unidade": "",  "sentido": "maior"},
+    "logins_ativos": {"label": "Logins ativos (pontos instalados)", "unidade": "",  "sentido": "maior"},
     "os_primeiro_suporte": {"label": "Dias até o 1º suporte após instalação (média)", "unidade": " dias", "sentido": "maior"},
     "os_entre_suportes":   {"label": "Dias entre suportes do mesmo cliente (média)",  "unidade": " dias", "sentido": "maior"},
     "os_reincidencia":     {"label": "Suportes por cliente em 60 dias (média)",       "unidade": "",      "sentido": "menor"},
@@ -3892,6 +3934,7 @@ def _kpi_valor(tipo, origem, valor_manual, ano, mes, cache):
     if tipo == "cancelamentos": return c
     if tipo == "crescimento":   return v - c
     if tipo == "base_ativa":    return base
+    if tipo == "logins_ativos": return vendas.get("logins_ativos") or 0
     if tipo == "churn":         return round(c / base * 100, 2) if base else None
     return None
 

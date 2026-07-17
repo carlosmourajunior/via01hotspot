@@ -497,7 +497,8 @@ export default function VendasIXC() {
             <KpiCard valor={kpV.totalAno}       label={`Ativados — ${anoFiltro}`} />
             <KpiCard valor={kpV.doMes.length}   label={`Ativados — ${MESES_ABREV[mesFiltro]}/${anoFiltro}`} cor={COR_VENDAS} />
             <KpiCard valor={kpV.ultimos7.length} label="Últimos 7 dias" cor="#3498db" />
-            <KpiCard valor={dadosV?.contratos_ativos ?? 0} label="Contratos ativos" cor="#8e44ad" />
+            <KpiCard valor={dadosV?.logins_ativos ?? 0} label="Logins ativos (pontos)" cor="#8e44ad" />
+            <KpiCard valor={dadosV?.contratos_ativos ?? 0} label="Contratos ativos" cor="#7f8c8d" />
           </div>
 
           <div className="card chart-card">

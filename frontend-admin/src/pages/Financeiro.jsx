@@ -13,6 +13,7 @@ const CIDADES = [
 ]
 
 const MESES_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+const MESES_FULL  = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
 
 const brl = (v) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
@@ -27,6 +28,11 @@ function formatPhone(phone) {
 function mesLabel(yyyymm) {
   const [, m] = (yyyymm || '').split('-')
   return m ? MESES_ABREV[Number(m) - 1] : yyyymm
+}
+
+function mesLabelFull(yyyymm) {
+  const [a, m] = (yyyymm || '').split('-')
+  return m ? `${MESES_FULL[Number(m) - 1]}/${a}` : yyyymm
 }
 
 const AGING_CORES = { '1-30': '#f39c12', '31-60': '#e67e22', '61-90': '#d35400', '90+': '#c0392b' }
@@ -110,25 +116,33 @@ export default function Financeiro() {
 
       {!loading && dados && !dados.sem_sync && (
         <>
-          {/* ── KPIs ── */}
+          {/* ── KPIs do mês corrente ── */}
           <div className="kpi-row">
             <div className="kpi-card">
               <div className="kpi-value" style={{ color: '#c0392b' }}>{brl(dados.vencido_total)}</div>
               <div className="kpi-label">Vencido em aberto ({dados.vencido_qtd} títulos)</div>
             </div>
             <div className="kpi-card">
-              <div className="kpi-value">{brl(dados.faturado_mes_anterior)}</div>
-              <div className="kpi-label">Faturado — mês anterior</div>
+              <div className="kpi-value">{brl(dados.faturado_mes)}</div>
+              <div className="kpi-label">
+                Faturado no mês · anterior: {brl(dados.faturado_mes_anterior)}
+              </div>
             </div>
             <div className="kpi-card">
-              <div className="kpi-value" style={{ color: '#27ae60' }}>{brl(dados.arpu)}</div>
-              <div className="kpi-label">Ticket médio (ARPU) · {dados.contratos_ativos} contratos</div>
+              <div className="kpi-value" style={{ color: '#27ae60' }}>{brl(dados.recebido_mes)}</div>
+              <div className="kpi-label">Recebido no mês ({dados.recebido_mes_qtd} títulos, por data de pagamento)</div>
             </div>
             <div className="kpi-card">
               <div className="kpi-value" style={{ color: '#2980b9' }}>
-                {brl((dados.previsao ?? []).find(p => p.faixa === '30')?.valor)}
+                {brl((dados.previsao ?? [])[0]?.valor)}
               </div>
-              <div className="kpi-label">A vencer — próximos 30 dias</div>
+              <div className="kpi-label">A receber no mês ({(dados.previsao ?? [])[0]?.qtd ?? 0} títulos em aberto)</div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-value" style={{ color: '#8e44ad' }}>{brl(dados.arpu)}</div>
+              <div className="kpi-label">
+                Ticket médio (ARPU) · {dados.logins_ativos || dados.contratos_ativos} logins ativos
+              </div>
             </div>
           </div>
 
@@ -164,16 +178,16 @@ export default function Financeiro() {
             </ResponsiveContainer>
           </div>
 
-          {/* ── Previsão de recebimento ── */}
+          {/* ── A receber por mês ── */}
           <div className="card">
             <h2 style={{ fontSize: '.95rem', fontWeight: 600, color: '#4a3670', marginBottom: '1rem' }}>
-              Previsão de recebimento (títulos em aberto a vencer)
+              A receber por mês (títulos em aberto, por vencimento)
             </h2>
             <div className="kpi-row" style={{ marginBottom: 0 }}>
               {(dados.previsao ?? []).map(p => (
-                <div key={p.faixa} className="kpi-card">
+                <div key={p.mes} className="kpi-card">
                   <div className="kpi-value" style={{ fontSize: '1.4rem', color: '#2980b9' }}>{brl(p.valor)}</div>
-                  <div className="kpi-label">Próximos {p.faixa} dias · {p.qtd} títulos</div>
+                  <div className="kpi-label">{mesLabelFull(p.mes)} · {p.qtd} títulos</div>
                 </div>
               ))}
             </div>
