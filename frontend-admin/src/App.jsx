@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 import Login from './pages/Login'
+import Dashboard from './pages/Dashboard'
 import VendasIXC from './pages/VendasIXC'
 import OsAnalise from './pages/OsAnalise'
 import Financeiro from './pages/Financeiro'
 import Guests from './pages/Guests'
 import Funil from './pages/Funil'
-import Olt from './pages/Olt'
 import Admin from './pages/Admin'
 
 // Injeta token em todas as requisições
@@ -31,9 +31,9 @@ axios.interceptors.response.use(
 // funcoes: quais funções enxergam a aba (admin vê tudo; adminOnly = só admins)
 const MENU = [
   { id: 'dashboard',  label: 'Dashboard',    icon: '📊', funcoes: ['vendas', 'financeiro'] },
+  { id: 'vendas',     label: 'Vendas',       icon: '📈', funcoes: ['vendas', 'financeiro'] },
   { id: 'financeiro', label: 'Financeiro',   icon: '💰', funcoes: ['financeiro'] },
   { id: 'os',         label: 'OS IXC',       icon: '🔧', funcoes: ['suporte'] },
-  // { id: 'olt',        label: 'OLT',          icon: '🔌', funcoes: ['suporte'] },
   { id: 'guests',     label: 'Wi-Fi Guests', icon: '📶', funcoes: ['vendas'] },
   { id: 'funil',      label: 'Funil',        icon: '🎯', funcoes: ['vendas'] },
   { id: 'admin',      label: 'Admin',        icon: '⚙️',  funcoes: [], adminOnly: true },
@@ -128,10 +128,10 @@ export default function App() {
       </aside>
 
       <main className="main-content">
-        {pagina === 'dashboard'  && <VendasIXC />}
+        {pagina === 'dashboard'  && <Dashboard user={user} />}
+        {pagina === 'vendas'     && <VendasIXC />}
         {pagina === 'financeiro' && <Financeiro />}
         {pagina === 'os'         && <OsAnalise />}
-        {/* {pagina === 'olt'        && <Olt />} */}  
         {pagina === 'guests'     && <Guests />}
         {pagina === 'funil'      && <Funil />}
         {pagina === 'admin'      && <Admin user={user} />}

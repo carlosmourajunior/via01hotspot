@@ -26,7 +26,6 @@ from passlib.context import CryptContext
 from dotenv import load_dotenv
 
 import db as hotspot_db
-import olt_admin
 from guests_admin import router as guests_router, reclassificar_guests
 from funil_admin import router as funil_router
 
@@ -76,7 +75,6 @@ _FUNCAO_ROTAS = [
     ("/api/ixc/analise-os",            {"suporte"}),
     ("/api/ixc/os",                    {"suporte"}),
     ("/api/ixc/sync-os",               {"suporte"}),
-    ("/api/olt/",                      {"suporte"}),
 ]
 
 @app.middleware("http")
@@ -732,6 +730,22 @@ def init_db():
         cur.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS admin BOOLEAN DEFAULT FALSE")
         # Funções do usuário (RBAC): abas/rotas visíveis conforme a função; admin vê tudo
         cur.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS funcoes TEXT[] NOT NULL DEFAULT '{}'")
+        # KPIs configuráveis da Dashboard: tipo calculado (vendas, churn...) ou
+        # valor manual; meta editável pelos admins na própria tela
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS dashboard_kpis (
+                id           SERIAL PRIMARY KEY,
+                titulo       TEXT NOT NULL,
+                tipo         TEXT NOT NULL,
+                origem       TEXT NOT NULL DEFAULT 'todas',
+                meta         NUMERIC(12,2),
+                valor_manual NUMERIC(12,2),
+                unidade      TEXT,
+                ordem        INTEGER NOT NULL DEFAULT 0,
+                ativo        BOOLEAN NOT NULL DEFAULT TRUE,
+                criado_em    TIMESTAMP DEFAULT NOW()
+            )
+        """)
     conn.commit()
     conn.close()
 
@@ -761,14 +775,30 @@ def _criar_admin_padrao():
         conn.close()
 
 
+def _seed_kpis_padrao():
+    """Cria KPIs de exemplo na primeira execução (tabela vazia)."""
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM dashboard_kpis")
+            if cur.fetchone()[0] == 0:
+                cur.execute("""
+                    INSERT INTO dashboard_kpis (titulo, tipo, origem, meta, ordem) VALUES
+                    ('Vendas Ouro Fino', 'vendas', 'ouro_fino', 60, 1),
+                    ('Churn Via01',      'churn',  'todas',      2, 2)
+                """)
+        conn.commit()
+    finally:
+        conn.close()
+
+
 @app.on_event("startup")
 def startup():
     if DATABASE_URL:
         init_db()
         hotspot_db.init_hotspot_tables()
-        olt_admin.init_olt_tables()
-        olt_admin.limpar_jobs_orfaos()
         _criar_admin_padrao()
+        _seed_kpis_padrao()
 
 
 # ── Sincronização IXC agendada (diária) ──────────────────────────────────────
@@ -810,30 +840,6 @@ async def _inicia_agendador_sync():
     if IXC_SYNC_HORA and IXC_TOKEN and DATABASE_URL:
         asyncio.create_task(_agendador_sync_ixc())
         print(f"[SYNC] Agendador diário ativo — próxima execução às {IXC_SYNC_HORA} ({_TZ_LOCAL.key})")
-
-
-# ── Coleta OLT agendada (a cada N horas; vazio desativa) ────────────────────
-OLT_SYNC_INTERVALO_HORAS = environ.get("OLT_SYNC_INTERVALO_HORAS", "2")
-
-
-async def _agendador_sync_olt():
-    intervalo = float(OLT_SYNC_INTERVALO_HORAS) * 3600
-    while True:
-        await asyncio.sleep(intervalo)
-        print(f"[OLT] Coleta agendada iniciando ({datetime.now(_TZ_LOCAL):%d/%m/%Y %H:%M})")
-        try:
-            # Passa pelo runner do olt_admin: respeita a trava e registra em olt_jobs
-            await asyncio.to_thread(olt_admin.rodar_coleta_completa_agendada)
-        except Exception as e:
-            print(f"[OLT] Erro na coleta agendada: {e}")
-
-
-@app.on_event("startup")
-async def _inicia_agendador_olt():
-    tem_olt = environ.get("NOKIA_HOST") or environ.get("OLT_MOCK_DIR")
-    if OLT_SYNC_INTERVALO_HORAS and tem_olt and DATABASE_URL:
-        asyncio.create_task(_agendador_sync_olt())
-        print(f"[OLT] Agendador ativo — coleta completa a cada {OLT_SYNC_INTERVALO_HORAS}h")
 
 
 def _row_hash(row: dict, colunas: list) -> str:
@@ -3760,10 +3766,176 @@ def resumo(origem: str = "ouro_fino"):
     }
 
 
-# ── Acessos do hotspot (Wi-Fi guests), funil de vendas e OLT ────────────────
+# ── Dashboard de KPIs (metas configuráveis) ─────────────────────────────────
+# Tipos calculados automaticamente sobre os dados já sincronizados do IXC
+# (mesma lógica das telas Vendas: manuais incluídos, ocultos/desconsiderados
+# fora). 'manual' mostra um valor digitado à mão (valor_manual).
+KPI_TIPOS = {
+    "vendas":        {"label": "Vendas do mês (novas instalações)", "unidade": "",  "sentido": "maior"},
+    "cancelamentos": {"label": "Cancelamentos do mês",              "unidade": "",  "sentido": "menor"},
+    "crescimento":   {"label": "Crescimento líquido do mês",        "unidade": "",  "sentido": "maior"},
+    "churn":         {"label": "Churn mensal (% da base ativa)",    "unidade": "%", "sentido": "menor"},
+    "base_ativa":    {"label": "Contratos ativos (base atual)",     "unidade": "",  "sentido": "maior"},
+    "manual":        {"label": "Valor manual",                      "unidade": "",  "sentido": "maior"},
+}
+KPI_ORIGENS = ["todas"] + list(IXC_CIDADES.keys())
+
+
+def _kpi_conta_mes(registros, campo, ano, mes):
+    prefixo = f"{ano:04d}-{mes:02d}"
+    return sum(1 for r in registros if (r.get(campo) or "").startswith(prefixo))
+
+
+def _kpi_valor(tipo, origem, valor_manual, ano, mes, cache):
+    """Calcula o valor atual de um KPI; cache evita repetir consultas por origem."""
+    if tipo == "manual":
+        return float(valor_manual) if valor_manual is not None else None
+    if origem not in cache:
+        cache[origem] = (ixc_vendas(origem), ixc_cancelamentos_ixc(origem))
+    vendas, canc = cache[origem]
+    v    = _kpi_conta_mes(vendas["registros"], "data_ativacao", ano, mes)
+    c    = _kpi_conta_mes(canc["registros"],   "data_abertura", ano, mes)
+    base = vendas.get("contratos_ativos") or 0
+    if tipo == "vendas":        return v
+    if tipo == "cancelamentos": return c
+    if tipo == "crescimento":   return v - c
+    if tipo == "base_ativa":    return base
+    if tipo == "churn":         return round(c / base * 100, 2) if base else None
+    return None
+
+
+@app.get("/api/dashboard/kpis")
+def dashboard_listar_kpis(ano: int = None, mes: int = None, todos: bool = False):
+    """KPIs com valor do mês (default: mês corrente). todos=1 inclui inativos (tela de config)."""
+    hoje = datetime.now(_TZ_LOCAL)
+    ano, mes = ano or hoje.year, mes or hoje.month
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT * FROM dashboard_kpis ORDER BY ordem, id")
+            kpis = [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+    if not todos:
+        kpis = [k for k in kpis if k["ativo"]]
+
+    cache, out = {}, []
+    for k in kpis:
+        info = KPI_TIPOS.get(k["tipo"], KPI_TIPOS["manual"])
+        try:
+            valor = _kpi_valor(k["tipo"], k["origem"], k["valor_manual"], ano, mes, cache)
+        except Exception:
+            valor = None  # sem sync/tabela ainda: card mostra "—" em vez de quebrar a tela
+        meta = float(k["meta"]) if k["meta"] is not None else None
+        pct = atingido = None
+        if valor is not None and meta:
+            pct      = round(valor / meta * 100, 1)
+            atingido = valor >= meta if info["sentido"] == "maior" else valor <= meta
+        out.append({
+            "id": k["id"], "titulo": k["titulo"], "tipo": k["tipo"], "origem": k["origem"],
+            "meta": meta, "valor": valor,
+            "valor_manual": float(k["valor_manual"]) if k["valor_manual"] is not None else None,
+            "unidade": k["unidade"] or info["unidade"], "sentido": info["sentido"],
+            "pct": pct, "atingido": atingido, "ordem": k["ordem"], "ativo": k["ativo"],
+        })
+    return {
+        "ano": ano, "mes": mes, "kpis": out,
+        "tipos":   {t: i["label"] for t, i in KPI_TIPOS.items()},
+        "origens": KPI_ORIGENS,
+    }
+
+
+def _kpi_validar_campos(body: dict, parcial: bool):
+    """Valida/converte o body de criação (parcial=False) ou edição (parcial=True)."""
+    campos = {}
+    if "titulo" in body or not parcial:
+        titulo = (body.get("titulo") or "").strip()
+        if not titulo:
+            raise HTTPException(status_code=400, detail="Informe o título do KPI")
+        campos["titulo"] = titulo
+    if "tipo" in body or not parcial:
+        if body.get("tipo") not in KPI_TIPOS:
+            raise HTTPException(status_code=400, detail=f"Tipo inválido. Use: {', '.join(KPI_TIPOS)}")
+        campos["tipo"] = body["tipo"]
+    if "origem" in body:
+        if body["origem"] not in KPI_ORIGENS:
+            raise HTTPException(status_code=400, detail=f"Origem inválida. Use: {', '.join(KPI_ORIGENS)}")
+        campos["origem"] = body["origem"]
+    for c in ("meta", "valor_manual"):
+        if c in body:
+            try:
+                campos[c] = None if body[c] in (None, "") else float(body[c])
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"Valor numérico inválido em '{c}'")
+    if "unidade" in body:
+        campos["unidade"] = (body.get("unidade") or "").strip() or None
+    if "ordem" in body:
+        campos["ordem"] = int(body["ordem"])
+    if "ativo" in body:
+        campos["ativo"] = bool(body["ativo"])
+    return campos
+
+
+@app.post("/api/dashboard/kpis")
+def dashboard_criar_kpi(request: Request, body: dict):
+    _require_admin(request)
+    campos = _kpi_validar_campos(body, parcial=False)
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            if "ordem" not in campos:
+                cur.execute("SELECT COALESCE(MAX(ordem), 0) + 1 FROM dashboard_kpis")
+                campos["ordem"] = cur.fetchone()[0]
+            cols = ", ".join(campos)
+            vals = ", ".join(["%s"] * len(campos))
+            cur.execute(
+                f"INSERT INTO dashboard_kpis ({cols}) VALUES ({vals}) RETURNING id",
+                tuple(campos.values()),
+            )
+            new_id = cur.fetchone()[0]
+        conn.commit()
+    finally:
+        conn.close()
+    return {"id": new_id, "ok": True}
+
+
+@app.patch("/api/dashboard/kpis/{kid}")
+def dashboard_atualizar_kpi(kid: int, request: Request, body: dict):
+    _require_admin(request)
+    campos = _kpi_validar_campos(body, parcial=True)
+    if not campos:
+        return {"ok": True}
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            sets = ", ".join(f"{c} = %s" for c in campos)
+            cur.execute(f"UPDATE dashboard_kpis SET {sets} WHERE id = %s", (*campos.values(), kid))
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="KPI não encontrado")
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
+@app.delete("/api/dashboard/kpis/{kid}")
+def dashboard_excluir_kpi(kid: int, request: Request):
+    _require_admin(request)
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM dashboard_kpis WHERE id = %s", (kid,))
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="KPI não encontrado")
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
+# ── Acessos do hotspot (Wi-Fi guests) e funil de vendas ─────────────────────
 app.include_router(guests_router)
 app.include_router(funil_router)
-app.include_router(olt_admin.router)
 
 
 # ── Frontend estático (build do frontend-admin) ─────────────────────────────
