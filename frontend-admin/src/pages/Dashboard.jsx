@@ -41,6 +41,12 @@ function fmtData(iso) {
   return `${d}/${m}/${a}`
 }
 
+function fmtDataHora(s) {
+  if (!s) return '—'
+  const [data, hora] = s.split(' ')
+  return hora ? `${fmtData(data)} ${hora}` : fmtData(data)
+}
+
 function fmtValor(v, unidade) {
   if (v === null || v === undefined) return '—'
   const n = Number(v)
@@ -144,10 +150,100 @@ function EvolucaoKpi({ kpi, ano, onFechar }) {
   )
 }
 
-// Tabela de clientes fora da meta de um KPI de OS (flag "mostrar_lista")
-function ListaProblemas({ kpi, mes, ano, periodo }) {
+// Bloco com os detalhes de uma OS (usado no modal, sozinho ou em lista)
+function OsBloco({ os }) {
+  const aberta = !os.data_fechamento
+  return (
+    <div style={{ border: '1px solid #e8e6f0', borderRadius: 8, padding: '0.7rem 0.9rem', marginBottom: '0.6rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '0.4rem' }}>
+        <div style={{ fontWeight: 700, fontSize: '.88rem' }}>
+          OS #{os.ixc_os_id}{os.protocolo ? ` · Protocolo ${os.protocolo}` : ''}
+        </div>
+        <span style={{
+          fontSize: '.72rem', fontWeight: 700, padding: '0.15rem 0.55rem', borderRadius: 10,
+          background: aberta ? '#fef5e7' : '#eafaf1',
+          color:      aberta ? '#b9770e' : '#1e8449',
+        }}>
+          {os.status_label || os.status || '—'}
+        </span>
+      </div>
+      <div style={{ fontSize: '.83rem', color: '#333', marginTop: '0.35rem' }}>
+        <strong>{os.assunto || 'Assunto não informado'}</strong>
+        {os.eh_instalacao && <span style={{ color: '#888' }}> · instalação</span>}
+        {os.eh_suporte    && <span style={{ color: '#888' }}> · suporte</span>}
+        {os.tipo_chamado  && <span style={{ color: '#888' }}> · {os.tipo_chamado}</span>}
+      </div>
+      <div style={{ fontSize: '.78rem', color: '#666', marginTop: '0.3rem' }}>
+        Abertura: {fmtDataHora(os.data_abertura)} · Fechamento: {fmtDataHora(os.data_fechamento)}
+        {os.cidade && os.cidade !== '—' ? ` · ${os.cidade}` : ''}
+        {os.bairro ? ` · ${os.bairro}` : ''}
+      </div>
+      {os.mensagem && (
+        <div style={{ fontSize: '.78rem', color: '#555', marginTop: '0.45rem', background: '#f8f7fc',
+                      padding: '0.45rem 0.6rem', borderRadius: 6, whiteSpace: 'pre-wrap' }}>
+          {os.mensagem}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Modal de detalhes: uma OS específica (modo 'os') ou todas as OS do cliente (modo 'cliente')
+function OsDetalheModal({ detalhe, onFechar }) {
   const [dados, setDados] = useState(null)
   const [erro,  setErro]  = useState(null)
+
+  useEffect(() => {
+    setDados(null); setErro(null)
+    const url = detalhe.modo === 'os'
+      ? `/api/dashboard/os/${detalhe.osId}`
+      : `/api/dashboard/clientes/${detalhe.idCliente}/os`
+    axios.get(url)
+      .then(r => setDados(r.data))
+      .catch(e => setErro(e.response?.data?.detail || e.message))
+  }, [detalhe])
+
+  const listaOs = dados ? (detalhe.modo === 'os' ? [dados] : dados.os) : []
+  const nome = detalhe.cliente || dados?.cliente_nome || ''
+
+  return (
+    <div onClick={onFechar}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000,
+               display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: '#fff', borderRadius: 10, width: 'min(640px, 100%)',
+                 maxHeight: '85vh', overflowY: 'auto', padding: '1.1rem 1.3rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                      gap: '0.8rem', marginBottom: '0.9rem' }}>
+          <h2 style={{ fontSize: '.95rem', fontWeight: 700, color: 'var(--roxo)', margin: 0 }}>
+            {detalhe.modo === 'os'
+              ? `📄 Detalhes da OS — ${nome}`
+              : `📋 Todas as OS do cliente — ${nome}${dados ? ` (${dados.total})` : ''}`}
+          </h2>
+          <button onClick={onFechar}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#888',
+                     fontSize: '.85rem', whiteSpace: 'nowrap' }}>
+            ✕ fechar
+          </button>
+        </div>
+        {erro && <div style={{ color: '#c0392b', fontSize: '.85rem' }}>{erro}</div>}
+        {!dados && !erro && <div style={{ color: '#888', fontSize: '.85rem' }}>Carregando…</div>}
+        {dados && listaOs.length === 0 && (
+          <div style={{ color: '#888', fontSize: '.85rem' }}>
+            Nenhuma OS encontrada no banco local para este cliente (sincronize o IXC).
+          </div>
+        )}
+        {listaOs.map(os => <OsBloco key={os.ixc_os_id} os={os} />)}
+      </div>
+    </div>
+  )
+}
+
+// Tabela de clientes fora da meta de um KPI de OS (flag "mostrar_lista")
+function ListaProblemas({ kpi, mes, ano, periodo }) {
+  const [dados,   setDados]   = useState(null)
+  const [erro,    setErro]    = useState(null)
+  const [detalhe, setDetalhe] = useState(null) // { modo: 'os'|'cliente', osId?, idCliente?, cliente }
 
   useEffect(() => {
     setDados(null); setErro(null)
@@ -190,6 +286,7 @@ function ListaProblemas({ kpi, mes, ano, periodo }) {
                   : reincidencia
                     ? <><th>Suportes</th><th>Último suporte</th></>
                     : <><th>{colAnterior}</th><th>Suporte</th><th>Assunto</th><th>Dias</th></>}
+                {!financeiro && <th></th>}
               </tr>
             </thead>
             <tbody>
@@ -221,12 +318,28 @@ function ListaProblemas({ kpi, mes, ano, periodo }) {
                       </td>
                     </>
                   )}
+                  {!financeiro && (
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <button
+                        style={{ ...btnStyle, padding: '0.25rem 0.6rem', fontSize: '.75rem' }}
+                        title={reincidencia
+                          ? 'Ver todas as OS abertas para este cliente'
+                          : 'Ver os detalhes desta OS'}
+                        onClick={() => setDetalhe(reincidencia
+                          ? { modo: 'cliente', idCliente: r.id_cliente, cliente: r.nome || `Cliente ${r.id_cliente}` }
+                          : { modo: 'os', osId: r.os_id, cliente: r.nome || `Cliente ${r.id_cliente}` })}
+                        disabled={!reincidencia && !r.os_id}>
+                        {reincidencia ? '📋 Ver OS' : '📄 Ver OS'}
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
+      {detalhe && <OsDetalheModal detalhe={detalhe} onFechar={() => setDetalhe(null)} />}
     </div>
   )
 }

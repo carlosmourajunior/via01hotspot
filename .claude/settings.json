@@ -29,7 +29,9 @@
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('após desfazer tudo:', {k: len\\(d[k]\\) for k in d}\\)\")",
       "WebFetch(domain:wikiapiprovedor.ixcsoft.com.br)",
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('registros retornados:', len\\(d.get\\('registros',[]\\)\\), '| total:', d.get\\('total'\\)\\)\")",
-      "Bash(python -m py_compile main.py)"
+      "Bash(python -m py_compile main.py)",
+      "Bash(python -m py_compile backend-py/main.py)",
+      "Bash(npx vite *)"
     ]
   }
 }

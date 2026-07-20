@@ -4331,7 +4331,7 @@ def dashboard_kpi_lista(kid: int, ano: int = None, mes: int = None, periodo: str
                 ant = "inst" if kpi["tipo"] == "os_primeiro_suporte" else "sup"
                 cur.execute("""
                     WITH rel AS (
-                        SELECT id_cliente, data_abertura, assunto,
+                        SELECT id_cliente, ixc_os_id, data_abertura, assunto,
                                CASE WHEN id_assunto = ANY(%(inst)s) THEN 'inst' ELSE 'sup' END AS tipo
                         FROM ixc_os
                         WHERE id_cliente IS NOT NULL
@@ -4339,13 +4339,16 @@ def dashboard_kpi_lista(kid: int, ano: int = None, mes: int = None, periodo: str
                           AND id_cidade = ANY(%(cidades)s)
                           AND id_assunto = ANY(%(inst)s || %(sup)s)
                     ), seq AS (
-                        SELECT id_cliente, tipo, data_abertura, assunto,
+                        SELECT id_cliente, ixc_os_id, tipo, data_abertura, assunto,
                                LAG(data_abertura) OVER w AS ant_data,
-                               LAG(tipo)          OVER w AS ant_tipo
+                               LAG(tipo)          OVER w AS ant_tipo,
+                               LAG(ixc_os_id)     OVER w AS ant_os_id
                         FROM rel
                         WINDOW w AS (PARTITION BY id_cliente ORDER BY data_abertura)
                     )
                     SELECT s.id_cliente,
+                           s.ixc_os_id AS os_id,
+                           s.ant_os_id AS os_id_anterior,
                            to_char(s.ant_data,      'YYYY-MM-DD') AS data_anterior,
                            to_char(s.data_abertura, 'YYYY-MM-DD') AS data_suporte,
                            s.assunto,
@@ -4379,6 +4382,84 @@ def dashboard_kpi_lista(kid: int, ano: int = None, mes: int = None, periodo: str
         "mes":       mes,
         "total":     len(rows),
         "registros": rows,
+    }
+
+
+# Status da su_oss_chamado do IXC → rótulo legível
+_OS_STATUS_LABELS = {
+    "A":   "Aberta",
+    "AN":  "Em análise",
+    "EN":  "Encaminhada",
+    "AS":  "Assumida",
+    "AG":  "Agendada",
+    "DS":  "Em deslocamento",
+    "EX":  "Em execução",
+    "F":   "Finalizada",
+    "RAG": "Reagendada",
+}
+
+_OS_DETALHE_SELECT = """
+    SELECT o.ixc_os_id, o.protocolo, o.id_cliente, o.id_assunto, o.assunto,
+           o.tipo_chamado, o.status, o.mensagem, o.bairro, o.id_cidade,
+           to_char(o.data_abertura,   'YYYY-MM-DD HH24:MI') AS data_abertura,
+           to_char(o.data_fechamento, 'YYYY-MM-DD HH24:MI') AS data_fechamento
+    FROM ixc_os o
+"""
+
+
+def _os_detalhe_row(r):
+    d = dict(r)
+    cidades_label = {v: k.replace("_", " ").title() for k, v in IXC_CIDADES.items()}
+    d["cidade"] = cidades_label.get(d.pop("id_cidade", None), "—")
+    d["status_label"] = _OS_STATUS_LABELS.get((d.get("status") or "").strip(), d.get("status") or "—")
+    d["eh_suporte"]    = d.get("id_assunto") in _KPI_OS_SUPORTE
+    d["eh_instalacao"] = d.get("id_assunto") in _KPI_OS_INSTALACAO
+    return d
+
+
+@app.get("/api/dashboard/os/{os_id}")
+def dashboard_os_detalhe(os_id: int):
+    """Detalhes de uma OS sincronizada do IXC (usado pelas listas dos KPIs de suporte)."""
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(_OS_DETALHE_SELECT + " WHERE o.ixc_os_id = %s", (os_id,))
+            row = cur.fetchone()
+            cliente = None
+            if row and row["id_cliente"]:
+                cur.execute("SELECT nome, fone FROM ixc_clientes WHERE ixc_id = %s", (row["id_cliente"],))
+                cliente = cur.fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="OS não encontrada no banco local (sincronize o IXC)")
+    d = _os_detalhe_row(row)
+    d["cliente_nome"] = cliente["nome"] if cliente else None
+    d["cliente_fone"] = cliente["fone"] if cliente else None
+    return d
+
+
+@app.get("/api/dashboard/clientes/{id_cliente}/os")
+def dashboard_cliente_os(id_cliente: int):
+    """Todas as OS sincronizadas de um cliente, da mais recente para a mais antiga."""
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT nome, fone, bairro FROM ixc_clientes WHERE ixc_id = %s", (id_cliente,))
+            cli = cur.fetchone()
+            cur.execute(_OS_DETALHE_SELECT + """
+                WHERE o.id_cliente = %s
+                ORDER BY o.data_abertura DESC NULLS LAST
+            """, (id_cliente,))
+            rows = [_os_detalhe_row(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+    return {
+        "id_cliente":   id_cliente,
+        "cliente_nome": cli["nome"] if cli else None,
+        "cliente_fone": cli["fone"] if cli else None,
+        "total":        len(rows),
+        "os":           rows,
     }
 
 
