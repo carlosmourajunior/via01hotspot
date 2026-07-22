@@ -5,6 +5,9 @@ backend/data/
 backend-py/static_portal/
 backend-py/static_admin/
 backend-py/uploads/
+# Planilhas de contatos: dados pessoais de clientes/leads, nunca versionar
+Novos_Contatos_Filtrados.xlsx
+*_Contatos_*.xlsx
 __pycache__/
 *.pyc
 .claude/settings.local.json

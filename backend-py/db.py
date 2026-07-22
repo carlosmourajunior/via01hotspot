@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS hotspot_leads (
     name            TEXT,
     client_status   TEXT,
     etapa           TEXT NOT NULL DEFAULT 'novo',
+    fonte           TEXT NOT NULL DEFAULT 'hotspot',
     obs             TEXT,
     primeiro_acesso TIMESTAMPTZ,
     ultimo_acesso   TIMESTAMPTZ,
@@ -43,6 +44,9 @@ CREATE TABLE IF NOT EXISTS hotspot_leads (
 """
 
 ETAPAS_FUNIL = ("novo", "contatado", "respondeu", "quente", "frio", "convertido")
+
+# De onde o lead veio: acesso ao hotspot ou importação de planilha
+FONTES_LEAD = ("hotspot", "planilha")
 
 # Histórico de mensagens WhatsApp enviadas (phone normalizado, sem o 55)
 DDL_HOTSPOT_MENSAGENS = """
@@ -84,6 +88,7 @@ def init_hotspot_tables():
             cur.execute("ALTER TABLE hotspot_guests ADD COLUMN IF NOT EXISTS name TEXT")
             cur.execute("ALTER TABLE hotspot_guests ADD COLUMN IF NOT EXISTS client_status TEXT")
             cur.execute(DDL_HOTSPOT_LEADS)
+            cur.execute("ALTER TABLE hotspot_leads ADD COLUMN IF NOT EXISTS fonte TEXT NOT NULL DEFAULT 'hotspot'")
             cur.execute(DDL_HOTSPOT_MENSAGENS)
             cur.execute("CREATE INDEX IF NOT EXISTS idx_hotspot_msgs_phone ON hotspot_mensagens (phone, enviado_em DESC)")
         conn.commit()
@@ -91,11 +96,12 @@ def init_hotspot_tables():
         conn.close()
 
 
-def upsert_lead(conn, phone: str, name: str, client_status: str, acesso_em=None):
+def upsert_lead(conn, phone: str, name: str, client_status: str, acesso_em=None, fonte: str = "hotspot"):
     """Mantém o funil de vendas em dia a cada acesso ao hotspot.
 
     Clientes ativos não entram no funil; um lead existente que virou cliente
-    é movido automaticamente para 'convertido'.
+    é movido automaticamente para 'convertido'. `fonte` só vale na criação: um
+    lead já existente mantém a origem com que entrou no funil.
     """
     fone = normalizar_fone(phone)
     if not fone:
@@ -114,15 +120,15 @@ def upsert_lead(conn, phone: str, name: str, client_status: str, acesso_em=None)
             return
         cur.execute(
             """
-            INSERT INTO hotspot_leads (phone, name, client_status, primeiro_acesso, ultimo_acesso)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO hotspot_leads (phone, name, client_status, primeiro_acesso, ultimo_acesso, fonte)
+            VALUES (%s, %s, %s, %s, %s, %s)
             ON CONFLICT (phone) DO UPDATE SET
                 name          = COALESCE(EXCLUDED.name, hotspot_leads.name),
                 client_status = EXCLUDED.client_status,
                 ultimo_acesso = COALESCE(EXCLUDED.ultimo_acesso, hotspot_leads.ultimo_acesso),
                 atualizado_em = NOW()
             """,
-            (fone, name, client_status, acesso_em, acesso_em),
+            (fone, name, client_status, acesso_em, acesso_em, fonte if fonte in FONTES_LEAD else "hotspot"),
         )
 
 

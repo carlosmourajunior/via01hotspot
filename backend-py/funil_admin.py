@@ -4,10 +4,13 @@ Etapas: novo → contatado → respondeu → quente / frio → convertido.
 'contatado' é automático ao enviar WhatsApp; 'convertido' é automático quando
 o telefone vira cliente no IXC; as demais são movidas manualmente no kanban.
 """
+import io
 import time
+import unicodedata
 
+import pandas as pd
 import psycopg2.extras
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 import db
@@ -30,7 +33,7 @@ def listar_leads():
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
-                SELECT id, phone, name, client_status, etapa, obs,
+                SELECT id, phone, name, client_status, etapa, fonte, obs,
                        primeiro_acesso, ultimo_acesso, ultimo_contato, atualizado_em
                 FROM hotspot_leads
                 ORDER BY atualizado_em DESC
@@ -70,7 +73,7 @@ def atualizar_lead(lead_id: int, body: LeadPatch):
                 UPDATE hotspot_leads
                 SET {', '.join(campos)}, atualizado_em = NOW()
                 WHERE id = %s
-                RETURNING id, phone, name, client_status, etapa, obs,
+                RETURNING id, phone, name, client_status, etapa, fonte, obs,
                           primeiro_acesso, ultimo_acesso, ultimo_contato, atualizado_em
                 """,
                 (*valores, lead_id),
@@ -130,6 +133,104 @@ def backfill_leads():
     finally:
         conn.close()
     return {"message": f"Funil populado: {criados} lead(s) novo(s) a partir do histórico."}
+
+
+def _sem_acento(texto: str) -> str:
+    norm = unicodedata.normalize("NFKD", str(texto or ""))
+    return "".join(c for c in norm if not unicodedata.combining(c)).strip().lower()
+
+
+def _achar_coluna(df: pd.DataFrame, *termos: str):
+    """Primeira coluna cujo nome (sem acento/caixa) contém todos os termos."""
+    for col in df.columns:
+        nome = _sem_acento(col)
+        if all(t in nome for t in termos):
+            return col
+    return None
+
+
+@router.post("/api/leads/importar-planilha")
+async def importar_planilha_leads(file: UploadFile = File(...)):
+    """Importa leads de uma planilha no formato Novos_Contatos_Filtrados.xlsx.
+
+    Colunas esperadas: 'Nome / Razão Social' e 'Telefone (Apenas Números)'
+    (ou 'Telefone (Formatado)'). Só entram no funil os telefones que não são
+    clientes ativos no IXC; os importados ficam com fonte = 'planilha'.
+    """
+    if not (file.filename or "").lower().endswith((".xlsx", ".xls", ".xlsm")):
+        raise HTTPException(status_code=400, detail="Apenas arquivos .xlsx, .xls ou .xlsm são aceitos.")
+
+    conteudo = await file.read()
+    try:
+        df = pd.read_excel(io.BytesIO(conteudo))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Não foi possível ler a planilha: {e}")
+
+    df.columns = [str(c).strip() for c in df.columns]
+    col_fone = _achar_coluna(df, "telefone", "numero") or _achar_coluna(df, "telefone") or _achar_coluna(df, "fone")
+    if col_fone is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Planilha sem coluna de telefone. Use o modelo Novos_Contatos_Filtrados.xlsx.",
+        )
+    col_nome = _achar_coluna(df, "nome") or _achar_coluna(df, "razao")
+
+    conn = db.get_conn()
+    importados, atualizados, clientes, invalidos = 0, 0, 0, 0
+    vistos = set()
+    try:
+        for _, linha in df.iterrows():
+            bruto = linha[col_fone]
+            if pd.isna(bruto):
+                invalidos += 1
+                continue
+            # Números vindos como float (35999190445.0) perdem o .0 aqui
+            if isinstance(bruto, float):
+                bruto = f"{bruto:.0f}"
+            fone = db.normalizar_fone(str(bruto))
+            if len(fone) < 10:
+                invalidos += 1
+                continue
+            if fone in vistos:
+                continue
+            vistos.add(fone)
+
+            nome = None
+            if col_nome is not None and not pd.isna(linha[col_nome]):
+                nome = str(linha[col_nome]).strip() or None
+
+            status, nome_ixc = db.classificar_telefone(conn, fone)
+            if status == "cliente":
+                clientes += 1
+                continue
+
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM hotspot_leads WHERE phone = %s", (fone,))
+                existia = cur.fetchone() is not None
+
+            db.upsert_lead(conn, fone, nome_ixc or nome, status, fonte="planilha")
+            if existia:
+                atualizados += 1
+            else:
+                importados += 1
+        conn.commit()
+    finally:
+        conn.close()
+
+    partes = [f"{importados} lead(s) importado(s) da planilha"]
+    if atualizados:
+        partes.append(f"{atualizados} já estavam no funil")
+    if clientes:
+        partes.append(f"{clientes} ignorado(s) por já serem clientes")
+    if invalidos:
+        partes.append(f"{invalidos} telefone(s) inválido(s)")
+    return {
+        "message": ", ".join(partes) + ".",
+        "importados": importados,
+        "atualizados": atualizados,
+        "clientes_ignorados": clientes,
+        "invalidos": invalidos,
+    }
 
 
 class EnvioLeadsBody(BaseModel):

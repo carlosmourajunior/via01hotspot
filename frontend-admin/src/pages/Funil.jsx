@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import axios from 'axios'
 
 function formatPhone(phone) {
@@ -26,6 +26,24 @@ const STATUS_LEAD = {
   ex_cliente: { label: 'Ex-cliente', bg: '#fef3e2', cor: '#9c5700' },
   nunca_foi:  { label: 'Novo',       bg: '#f3e8fd', cor: '#6c3483' },
   cliente:    { label: 'Cliente',    bg: '#e8f8e8', cor: '#1a5e20' },
+}
+
+const FONTES = {
+  hotspot:  { label: '📶 Hotspot',  bg: '#e8f1fd', cor: '#1b4f9c' },
+  planilha: { label: '📄 Planilha', bg: '#fdf2e8', cor: '#8a4b12' },
+}
+
+function BadgeFonte({ fonte }) {
+  const cfg = FONTES[fonte]
+  if (!cfg) return null
+  return (
+    <span style={{
+      padding: '0 6px', borderRadius: 8, fontSize: '.68rem', fontWeight: 600,
+      background: cfg.bg, color: cfg.cor, whiteSpace: 'nowrap',
+    }}>
+      {cfg.label}
+    </span>
+  )
 }
 
 function BadgeLead({ status }) {
@@ -90,7 +108,7 @@ function ModalLead({ lead, onFechar, onSalvo, onErro }) {
               {lead.name || formatPhone(lead.phone)}
             </h2>
             <p style={{ margin: '.2rem 0 0', fontSize: '.85rem', color: '#6b5f80' }}>
-              {formatPhone(lead.phone)} <BadgeLead status={lead.client_status} />
+              {formatPhone(lead.phone)} <BadgeLead status={lead.client_status} /> <BadgeFonte fonte={lead.fonte} />
             </p>
           </div>
           <button className="btn-secondary" onClick={onFechar} style={{ padding: '.2rem .6rem' }}>✕</button>
@@ -173,8 +191,11 @@ export default function Funil() {
   const [erro,    setErro]    = useState(null)
   const [aviso,   setAviso]   = useState(null)
   const [busca,   setBusca]   = useState('')
+  const [fonte,   setFonte]   = useState('')
   const [leadAberto, setLeadAberto] = useState(null)
   const [arrastandoSobre, setArrastandoSobre] = useState(null)
+  const [importando, setImportando] = useState(false)
+  const inputArquivo = useRef(null)
 
   const carregar = () => {
     setLoading(true); setErro(null)
@@ -193,14 +214,28 @@ export default function Funil() {
       .catch(e => { setErro(e.response?.data?.detail || e.message); setLoading(false) })
   }
 
+  const importar = (e) => {
+    const arquivo = e.target.files?.[0]
+    e.target.value = ''  // permite reenviar o mesmo arquivo
+    if (!arquivo) return
+    const form = new FormData()
+    form.append('file', arquivo)
+    setImportando(true); setErro(null); setAviso(null)
+    axios.post('/api/leads/importar-planilha', form, { timeout: 300000 })
+      .then(r => { setAviso(r.data.message); carregar() })
+      .catch(e => setErro(e.response?.data?.detail || e.message))
+      .finally(() => setImportando(false))
+  }
+
   const lista = leads ?? []
   const filtrados = useMemo(() => {
-    if (!busca) return lista
     const q = busca.toLowerCase()
     return lista.filter(l =>
-      (l.name  || '').toLowerCase().includes(q) ||
-      (l.phone || '').toLowerCase().includes(q))
-  }, [lista, busca])
+      (!fonte || l.fonte === fonte) &&
+      (!q ||
+        (l.name  || '').toLowerCase().includes(q) ||
+        (l.phone || '').toLowerCase().includes(q)))
+  }, [lista, busca, fonte])
 
   const porEtapa = useMemo(() => {
     const m = Object.fromEntries(ETAPAS.map(e => [e.id, []]))
@@ -238,6 +273,22 @@ export default function Funil() {
             onChange={e => setBusca(e.target.value)}
             style={{ width: 200 }}
           />
+          <select className="filtro-input" value={fonte} onChange={e => setFonte(e.target.value)}>
+            <option value="">Todas as fontes</option>
+            <option value="hotspot">📶 Hotspot</option>
+            <option value="planilha">📄 Planilha</option>
+          </select>
+          <input
+            ref={inputArquivo}
+            type="file"
+            accept=".xlsx,.xls,.xlsm"
+            onChange={importar}
+            style={{ display: 'none' }}
+          />
+          <button className="btn-secondary" onClick={() => inputArquivo.current?.click()} disabled={importando || loading}
+            title="Importa contatos de uma planilha (modelo Novos_Contatos_Filtrados.xlsx). Clientes ativos são ignorados.">
+            {importando ? 'Importando…' : '📄 Importar planilha'}
+          </button>
           <button className="btn-secondary" onClick={popular} disabled={loading}
             title="Cria leads a partir dos acessos já registrados no hotspot">
             ⤵ Popular do histórico
@@ -285,7 +336,9 @@ export default function Funil() {
                   <div className="funil-card-fone">{formatPhone(lead.phone)}</div>
                   <div className="funil-card-meta">
                     <BadgeLead status={lead.client_status} />
-                    <span title="Último acesso ao hotspot">📶 {formatData(lead.ultimo_acesso)}</span>
+                    {lead.fonte === 'planilha'
+                      ? <BadgeFonte fonte={lead.fonte} />
+                      : <span title="Último acesso ao hotspot">📶 {formatData(lead.ultimo_acesso)}</span>}
                   </div>
                   {lead.obs && <div className="funil-card-obs" title={lead.obs}>💬 {lead.obs}</div>}
                 </div>
