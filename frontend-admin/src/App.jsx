@@ -7,6 +7,9 @@ import OsAnalise from './pages/OsAnalise'
 import Financeiro from './pages/Financeiro'
 import Guests from './pages/Guests'
 import Funil from './pages/Funil'
+import CobrancaCampanhas from './pages/cobranca/Campanhas'
+import CobrancaModelos from './pages/cobranca/Modelos'
+import CobrancaIntegracao from './pages/cobranca/Integracao'
 import Admin from './pages/Admin'
 
 // Injeta token em todas as requisições
@@ -29,6 +32,7 @@ axios.interceptors.response.use(
 )
 
 // funcoes: quais funções enxergam a aba (admin vê tudo; adminOnly = só admins)
+// filhos: submenu — o item pai não é uma página, só agrupa
 const MENU = [
   { id: 'dashboard',  label: 'Dashboard',    icon: '📊', funcoes: ['vendas', 'financeiro'] },
   { id: 'vendas',     label: 'Vendas',       icon: '📈', funcoes: ['vendas', 'financeiro'] },
@@ -36,6 +40,14 @@ const MENU = [
   { id: 'os',         label: 'OS IXC',       icon: '🔧', funcoes: ['suporte'] },
   { id: 'guests',     label: 'Wi-Fi Guests', icon: '📶', funcoes: ['vendas'] },
   { id: 'funil',      label: 'Funil',        icon: '🎯', funcoes: ['vendas'] },
+  {
+    id: 'cobranca', label: 'Cobrança', icon: '💸', funcoes: ['financeiro'],
+    filhos: [
+      { id: 'cobranca-campanhas',  label: 'Campanhas' },
+      { id: 'cobranca-modelos',    label: 'Modelos de MSG' },
+      { id: 'cobranca-integracao', label: 'Integração' },
+    ],
+  },
   { id: 'admin',      label: 'Admin',        icon: '⚙️',  funcoes: [], adminOnly: true },
 ]
 
@@ -47,10 +59,20 @@ function menuVisivel(user) {
   })
 }
 
+// Ids de página de um item do menu: os filhos, ou o próprio se não tiver filhos
+function paginasDe(item) {
+  return item.filhos ? item.filhos.map(f => f.id) : [item.id]
+}
+
+function paginasVisiveis(user) {
+  return menuVisivel(user).flatMap(paginasDe)
+}
+
 export default function App() {
   const [user,   setUser]   = useState(null)   // null = não autenticado
   const [pronto, setPronto] = useState(false)  // evita flash de login antes de validar token
   const [pagina, setPagina] = useState(null)   // definida após login (primeira aba visível)
+  const [gruposAbertos, setGruposAbertos] = useState([])  // submenus expandidos
 
   // Valida token existente no localStorage
   useEffect(() => {
@@ -65,9 +87,9 @@ export default function App() {
   // usuário só-suporte, por exemplo, não enxerga o Dashboard)
   useEffect(() => {
     if (!user) return
-    const visiveis = menuVisivel(user)
-    if (!pagina || !visiveis.some(m => m.id === pagina)) {
-      setPagina(visiveis[0]?.id || null)
+    const paginas = paginasVisiveis(user)
+    if (!pagina || !paginas.includes(pagina)) {
+      setPagina(paginas[0] || null)
     }
   }, [user])  // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -90,16 +112,47 @@ export default function App() {
         </div>
 
         <nav className="sidebar-nav">
-          {menuVisivel(user).map(item => (
-            <button
-              key={item.id}
-              className={'nav-item' + (pagina === item.id ? ' active' : '')}
-              onClick={() => setPagina(item.id)}
-            >
-              <span className="nav-icon">{item.icon}</span>
-              <span className="nav-label">{item.label}</span>
-            </button>
-          ))}
+          {menuVisivel(user).map(item => {
+            if (!item.filhos) {
+              return (
+                <button
+                  key={item.id}
+                  className={'nav-item' + (pagina === item.id ? ' active' : '')}
+                  onClick={() => setPagina(item.id)}
+                >
+                  <span className="nav-icon">{item.icon}</span>
+                  <span className="nav-label">{item.label}</span>
+                </button>
+              )
+            }
+            // Grupo com submenu: abre ao clicar e fica aberto enquanto um
+            // filho estiver selecionado (senão sumiria a página em uso)
+            const temFilhoAtivo = paginasDe(item).includes(pagina)
+            const aberto = gruposAbertos.includes(item.id) || temFilhoAtivo
+            return (
+              <div key={item.id}>
+                <button
+                  className={'nav-item' + (temFilhoAtivo ? ' nav-item-grupo-ativo' : '')}
+                  onClick={() => setGruposAbertos(prev =>
+                    prev.includes(item.id) ? prev.filter(id => id !== item.id) : [...prev, item.id]
+                  )}
+                >
+                  <span className="nav-icon">{item.icon}</span>
+                  <span className="nav-label">{item.label}</span>
+                  <span className="nav-caret">{aberto ? '▾' : '▸'}</span>
+                </button>
+                {aberto && item.filhos.map(filho => (
+                  <button
+                    key={filho.id}
+                    className={'nav-item nav-subitem' + (pagina === filho.id ? ' active' : '')}
+                    onClick={() => setPagina(filho.id)}
+                  >
+                    <span className="nav-label">{filho.label}</span>
+                  </button>
+                ))}
+              </div>
+            )
+          })}
         </nav>
 
         {/* Usuário + logout */}
@@ -134,6 +187,9 @@ export default function App() {
         {pagina === 'os'         && <OsAnalise />}
         {pagina === 'guests'     && <Guests />}
         {pagina === 'funil'      && <Funil />}
+        {pagina === 'cobranca-campanhas'  && <CobrancaCampanhas />}
+        {pagina === 'cobranca-modelos'    && <CobrancaModelos />}
+        {pagina === 'cobranca-integracao' && <CobrancaIntegracao />}
         {pagina === 'admin'      && <Admin user={user} />}
         {!pagina && (
           <div className="page">
