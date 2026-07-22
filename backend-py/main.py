@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 import db as hotspot_db
 from guests_admin import router as guests_router, reclassificar_guests
 from funil_admin import router as funil_router
-from cobranca_admin import router as cobranca_router
+from cobranca_admin import router as cobranca_router, init_cobranca_tables
 
 load_dotenv()
 
@@ -810,6 +810,7 @@ def startup():
     if DATABASE_URL:
         init_db()
         hotspot_db.init_hotspot_tables()
+        init_cobranca_tables()
         _criar_admin_padrao()
         _seed_kpis_padrao()
 

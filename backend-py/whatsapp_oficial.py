@@ -38,6 +38,72 @@ def _erro_da_meta(resp) -> str:
     return " — ".join(partes)
 
 
+def criar_template(nome: str, idioma: str, categoria: str, corpo: str,
+                   exemplos: list, rodape: str = None) -> dict:
+    """Submete um template à Meta. Devolve {id, status, category}.
+
+    `exemplos` são os valores de amostra das variáveis {{1}}, {{2}}… — a Meta
+    recusa o template sem eles quando o corpo tem variáveis.
+    """
+    if not TOKEN or not WABA_ID:
+        raise RuntimeError("WHATSAPP_TOKEN e WHATSAPP_WABA_ID não configurados no .env.")
+
+    componentes = [{"type": "BODY", "text": corpo}]
+    if exemplos:
+        componentes[0]["example"] = {"body_text": [list(exemplos)]}
+    if rodape:
+        componentes.append({"type": "FOOTER", "text": rodape})
+
+    resp = requests.post(
+        f"{BASE_URL}/{WABA_ID}/message_templates",
+        json={
+            "name": nome,
+            "language": idioma,
+            "category": categoria,
+            "components": componentes,
+        },
+        headers=_headers(),
+        timeout=30,
+    )
+    if not resp.ok:
+        raise RuntimeError(_erro_da_meta(resp))
+    return resp.json()
+
+
+def listar_templates() -> list:
+    """Todos os templates da WABA, com o status atual da revisão da Meta."""
+    if not TOKEN or not WABA_ID:
+        raise RuntimeError("WHATSAPP_TOKEN e WHATSAPP_WABA_ID não configurados no .env.")
+
+    resp = requests.get(
+        f"{BASE_URL}/{WABA_ID}/message_templates",
+        params={
+            "fields": "id,name,status,category,language,rejected_reason,components",
+            "limit": 200,
+        },
+        headers=_headers(),
+        timeout=30,
+    )
+    if not resp.ok:
+        raise RuntimeError(_erro_da_meta(resp))
+    return resp.json().get("data", [])
+
+
+def excluir_template(nome: str) -> None:
+    """Remove o template na Meta (ela apaga por nome, não por id)."""
+    if not TOKEN or not WABA_ID:
+        raise RuntimeError("WHATSAPP_TOKEN e WHATSAPP_WABA_ID não configurados no .env.")
+
+    resp = requests.delete(
+        f"{BASE_URL}/{WABA_ID}/message_templates",
+        params={"name": nome},
+        headers=_headers(),
+        timeout=30,
+    )
+    if not resp.ok:
+        raise RuntimeError(_erro_da_meta(resp))
+
+
 def info_numero() -> dict:
     """Dados do número remetente. Serve de teste de conexão: valida token,
     Phone number ID e permissões de uma vez só."""
