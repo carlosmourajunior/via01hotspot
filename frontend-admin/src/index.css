@@ -83,6 +83,16 @@ body {
 .nav-icon  { font-size: 1.1rem; }
 .nav-label { font-size: 0.88rem; }
 
+/* Grupo com submenu: seta à direita e itens filhos recuados */
+.nav-caret { margin-left: auto; font-size: 0.7rem; opacity: 0.7; }
+.nav-item-grupo-ativo { color: #fff; }
+
+.nav-subitem {
+  padding-left: 2.6rem;
+  font-size: 0.84rem;
+}
+.nav-subitem .nav-label { font-size: 0.84rem; }
+
 /* ── Main content ── */
 .main-content {
   flex: 1;
