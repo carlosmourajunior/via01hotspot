@@ -59,6 +59,18 @@ CREATE TABLE IF NOT EXISTS hotspot_mensagens (
 """
 
 
+# Modelos de mensagem reutilizáveis no envio para leads
+DDL_HOTSPOT_MSG_MODELOS = """
+CREATE TABLE IF NOT EXISTS hotspot_msg_modelos (
+    id            SERIAL PRIMARY KEY,
+    titulo        TEXT UNIQUE NOT NULL,
+    texto         TEXT NOT NULL,
+    criado_em     TIMESTAMPTZ DEFAULT NOW(),
+    atualizado_em TIMESTAMPTZ DEFAULT NOW()
+);
+"""
+
+
 def registrar_mensagem(conn, phone: str, message: str):
     with conn.cursor() as cur:
         cur.execute(
@@ -90,6 +102,7 @@ def init_hotspot_tables():
             cur.execute(DDL_HOTSPOT_LEADS)
             cur.execute("ALTER TABLE hotspot_leads ADD COLUMN IF NOT EXISTS fonte TEXT NOT NULL DEFAULT 'hotspot'")
             cur.execute(DDL_HOTSPOT_MENSAGENS)
+            cur.execute(DDL_HOTSPOT_MSG_MODELOS)
             cur.execute("CREATE INDEX IF NOT EXISTS idx_hotspot_msgs_phone ON hotspot_mensagens (phone, enviado_em DESC)")
         conn.commit()
     finally:

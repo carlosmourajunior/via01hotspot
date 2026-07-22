@@ -9,6 +9,8 @@ import time
 import unicodedata
 
 import pandas as pd
+import psycopg2
+import psycopg2.errors
 import psycopg2.extras
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -231,6 +233,121 @@ async def importar_planilha_leads(file: UploadFile = File(...)):
         "clientes_ignorados": clientes,
         "invalidos": invalidos,
     }
+
+
+# ── Modelos de mensagem ────────────────────────────────────────────
+# Rotas sob /api/leads de propósito: herdam o RBAC de "vendas" do main.py.
+
+class ModeloBody(BaseModel):
+    titulo: str = None
+    texto: str = None
+
+
+def _modelo_serializado(row: dict) -> dict:
+    for campo in ("criado_em", "atualizado_em"):
+        if row.get(campo):
+            row[campo] = row[campo].isoformat()
+    return row
+
+
+@router.get("/api/leads/modelos")
+def listar_modelos():
+    conn = db.get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, titulo, texto, criado_em, atualizado_em FROM hotspot_msg_modelos ORDER BY titulo"
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    return [_modelo_serializado(r) for r in rows]
+
+
+@router.post("/api/leads/modelos")
+def criar_modelo(body: ModeloBody):
+    titulo = (body.titulo or "").strip()
+    texto = (body.texto or "").strip()
+    if not titulo:
+        raise HTTPException(status_code=400, detail="Dê um nome ao modelo.")
+    if len(texto) < 3:
+        raise HTTPException(status_code=400, detail="A mensagem do modelo está vazia.")
+
+    conn = db.get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # Mesmo título sobrescreve: salvar duas vezes atualiza em vez de duplicar
+            cur.execute(
+                """
+                INSERT INTO hotspot_msg_modelos (titulo, texto)
+                VALUES (%s, %s)
+                ON CONFLICT (titulo) DO UPDATE SET texto = EXCLUDED.texto, atualizado_em = NOW()
+                RETURNING id, titulo, texto, criado_em, atualizado_em
+                """,
+                (titulo, texto),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    finally:
+        conn.close()
+    return _modelo_serializado(row)
+
+
+@router.patch("/api/leads/modelos/{modelo_id}")
+def atualizar_modelo(modelo_id: int, body: ModeloBody):
+    campos, valores = [], []
+    if body.titulo is not None:
+        titulo = body.titulo.strip()
+        if not titulo:
+            raise HTTPException(status_code=400, detail="O nome do modelo não pode ficar vazio.")
+        campos.append("titulo = %s")
+        valores.append(titulo)
+    if body.texto is not None:
+        texto = body.texto.strip()
+        if len(texto) < 3:
+            raise HTTPException(status_code=400, detail="A mensagem do modelo está vazia.")
+        campos.append("texto = %s")
+        valores.append(texto)
+    if not campos:
+        raise HTTPException(status_code=400, detail="Nada para atualizar.")
+
+    conn = db.get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""
+                UPDATE hotspot_msg_modelos
+                SET {', '.join(campos)}, atualizado_em = NOW()
+                WHERE id = %s
+                RETURNING id, titulo, texto, criado_em, atualizado_em
+                """,
+                (*valores, modelo_id),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    except psycopg2.errors.UniqueViolation:
+        raise HTTPException(status_code=400, detail="Já existe um modelo com esse nome.")
+    finally:
+        conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Modelo não encontrado.")
+    return _modelo_serializado(row)
+
+
+@router.delete("/api/leads/modelos/{modelo_id}")
+def remover_modelo(modelo_id: int):
+    conn = db.get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM hotspot_msg_modelos WHERE id = %s", (modelo_id,))
+            removidos = cur.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    if not removidos:
+        raise HTTPException(status_code=404, detail="Modelo não encontrado.")
+    return {"message": "Modelo removido."}
 
 
 class EnvioLeadsBody(BaseModel):
