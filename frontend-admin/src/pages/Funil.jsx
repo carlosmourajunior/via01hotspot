@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import axios from 'axios'
+import { useModelos, BarraModelos, ModalModelos, ModalEnvioLeads } from '../components/MensagensLeads'
 
 function formatPhone(phone) {
   const d = (phone || '').replace(/\D/g, '')
@@ -59,12 +60,13 @@ function BadgeLead({ status }) {
   )
 }
 
-function ModalLead({ lead, onFechar, onSalvo, onErro }) {
+function ModalLead({ lead, modelos, onRecarregarModelos, onFechar, onSalvo, onErro }) {
   const [obs, setObs]         = useState(lead.obs || '')
   const [msg, setMsg]         = useState('')
   const [salvando, setSalvando] = useState(false)
   const [enviando, setEnviando] = useState(false)
   const [avisoEnvio, setAvisoEnvio] = useState(null)
+  const [gerenciandoModelos, setGerenciandoModelos] = useState(false)
 
   const salvarObs = () => {
     setSalvando(true)
@@ -164,6 +166,13 @@ function ModalLead({ lead, onFechar, onSalvo, onErro }) {
           <div style={{ fontSize: '.78rem', fontWeight: 600, color: '#4a3670', marginBottom: '.4rem' }}>
             📨 Enviar WhatsApp (use {'{nome}'} para o primeiro nome)
           </div>
+          <BarraModelos
+            modelos={modelos}
+            texto={msg}
+            onEscolher={setMsg}
+            onSalvo={onRecarregarModelos}
+            onGerenciar={() => setGerenciandoModelos(true)}
+          />
           <textarea
             value={msg}
             onChange={e => setMsg(e.target.value)}
@@ -180,6 +189,14 @@ function ModalLead({ lead, onFechar, onSalvo, onErro }) {
             {enviando ? 'Enviando…' : 'Enviar mensagem'}
           </button>
         </div>
+
+        {gerenciandoModelos && (
+          <ModalModelos
+            modelos={modelos}
+            onFechar={() => setGerenciandoModelos(false)}
+            onMudou={onRecarregarModelos}
+          />
+        )}
       </div>
     </div>
   )
@@ -192,10 +209,17 @@ export default function Funil() {
   const [aviso,   setAviso]   = useState(null)
   const [busca,   setBusca]   = useState('')
   const [fonte,   setFonte]   = useState('')
+  const [etapaFiltro, setEtapaFiltro] = useState('')
+  const [visao,   setVisao]   = useState('kanban')
   const [leadAberto, setLeadAberto] = useState(null)
   const [arrastandoSobre, setArrastandoSobre] = useState(null)
   const [importando, setImportando] = useState(false)
+  const [selecionados, setSelecionados] = useState(new Set())
+  const [modalEnvio, setModalEnvio] = useState(false)
+  const [enviando, setEnviando] = useState(false)
+  const [gerenciandoModelos, setGerenciandoModelos] = useState(false)
   const inputArquivo = useRef(null)
+  const { modelos, recarregar: recarregarModelos } = useModelos()
 
   const carregar = () => {
     setLoading(true); setErro(null)
@@ -237,6 +261,43 @@ export default function Funil() {
         (l.phone || '').toLowerCase().includes(q)))
   }, [lista, busca, fonte])
 
+  // A visão em lista tem um filtro de etapa próprio (no kanban a etapa é a coluna)
+  const daLista = useMemo(() => (
+    etapaFiltro ? filtrados.filter(l => l.etapa === etapaFiltro) : filtrados
+  ), [filtrados, etapaFiltro])
+
+  const idsVisiveis = useMemo(() => daLista.map(l => l.id), [daLista])
+  const todosVisiveisSelecionados = idsVisiveis.length > 0 && idsVisiveis.every(id => selecionados.has(id))
+
+  const toggleUm = (id) => setSelecionados(prev => {
+    const s = new Set(prev)
+    s.has(id) ? s.delete(id) : s.add(id)
+    return s
+  })
+
+  const toggleTodosVisiveis = () => setSelecionados(prev => {
+    const s = new Set(prev)
+    if (todosVisiveisSelecionados) idsVisiveis.forEach(id => s.delete(id))
+    else idsVisiveis.forEach(id => s.add(id))
+    return s
+  })
+
+  const enviarEmMassa = (mensagem) => {
+    setEnviando(true); setErro(null); setAviso(null)
+    axios.post('/api/leads/enviar-whatsapp', {
+      ids: Array.from(selecionados),
+      message: mensagem,
+    }, { timeout: 600000 })
+      .then(r => {
+        setAviso(r.data.message)
+        setModalEnvio(false)
+        setSelecionados(new Set())
+        carregar()
+      })
+      .catch(e => setErro(e.response?.data?.detail || e.message))
+      .finally(() => setEnviando(false))
+  }
+
   const porEtapa = useMemo(() => {
     const m = Object.fromEntries(ETAPAS.map(e => [e.id, []]))
     filtrados.forEach(l => { (m[l.etapa] || m.novo).push(l) })
@@ -266,6 +327,24 @@ export default function Funil() {
       <div className="page-header">
         <h1>Funil de Vendas — Hotspot</h1>
         <div style={{ display: 'flex', gap: '.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Alternador de visão: kanban para trabalhar etapa a etapa,
+              lista para selecionar vários e disparar mensagem em massa */}
+          <div style={{ display: 'flex', border: '1px solid #d5cbe6', borderRadius: 8, overflow: 'hidden' }}>
+            {[['kanban', '▦ Kanban'], ['lista', '☰ Lista']].map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setVisao(id)}
+                style={{
+                  padding: '.35rem .8rem', fontSize: '.8rem', fontWeight: 600, border: 'none',
+                  cursor: 'pointer', fontFamily: 'inherit',
+                  background: visao === id ? '#3D1278' : '#fff',
+                  color: visao === id ? '#fff' : '#4a3670',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <input
             className="filtro-input"
             placeholder="Buscar nome ou telefone…"
@@ -296,12 +375,27 @@ export default function Funil() {
           <button className="btn-secondary" onClick={carregar} disabled={loading}>
             {loading ? 'Atualizando…' : '↻ Atualizar'}
           </button>
+          <button className="btn-secondary" onClick={() => setGerenciandoModelos(true)}
+            title="Modelos de mensagem reutilizáveis">
+            📋 Modelos
+          </button>
+          {visao === 'lista' && (
+            <button
+              className="btn-primary"
+              onClick={() => setModalEnvio(true)}
+              disabled={selecionados.size === 0}
+              title={selecionados.size === 0 ? 'Selecione leads na tabela' : ''}
+            >
+              📨 Enviar WhatsApp ({selecionados.size})
+            </button>
+          )}
         </div>
       </div>
 
       {erro  && <div className="alert-error">{erro}</div>}
       {aviso && <div className="alert-success">{aviso}</div>}
 
+      {visao === 'kanban' && (
       <div className="funil-board">
         {ETAPAS.map(etapa => (
           <div
@@ -350,10 +444,133 @@ export default function Funil() {
           </div>
         ))}
       </div>
+      )}
+
+      {visao === 'lista' && (
+        <>
+          <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap', margin: '0 0 .8rem' }}>
+            <select className="filtro-input" value={etapaFiltro} onChange={e => setEtapaFiltro(e.target.value)}>
+              <option value="">Todas as etapas</option>
+              {ETAPAS.map(e => (
+                <option key={e.id} value={e.id}>{e.label} ({porEtapa[e.id].length})</option>
+              ))}
+            </select>
+            <span style={{ fontSize: '.82rem', color: '#6b5f80' }}>
+              {daLista.length} lead(s){selecionados.size > 0 && ` · ${selecionados.size} selecionado(s)`}
+            </span>
+            {selecionados.size > 0 && (
+              <button className="btn-secondary" onClick={() => setSelecionados(new Set())}
+                style={{ padding: '.15rem .6rem', fontSize: '.78rem' }}>
+                limpar seleção
+              </button>
+            )}
+          </div>
+
+          <div className="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: 34 }}>
+                    <input
+                      type="checkbox"
+                      checked={todosVisiveisSelecionados}
+                      onChange={toggleTodosVisiveis}
+                      title="Selecionar todos os visíveis (respeita os filtros atuais)"
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </th>
+                  <th>Nome</th>
+                  <th>Telefone</th>
+                  <th>Etapa</th>
+                  <th>Classificação</th>
+                  <th>Origem</th>
+                  <th>Último acesso</th>
+                  <th>Último contato</th>
+                  <th>Observações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {daLista.map(lead => (
+                  <tr key={lead.id} style={selecionados.has(lead.id) ? { background: '#f0edff' } : undefined}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selecionados.has(lead.id)}
+                        onChange={() => toggleUm(lead.id)}
+                        style={{ cursor: 'pointer' }}
+                      />
+                    </td>
+                    <td>
+                      <button
+                        onClick={() => setLeadAberto(lead)}
+                        style={{
+                          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                          color: '#3D1278', fontWeight: 600, fontFamily: 'inherit', fontSize: 'inherit',
+                          textAlign: 'left', textDecoration: 'underline',
+                        }}
+                      >
+                        {lead.name || 'Sem nome'}
+                      </button>
+                    </td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{formatPhone(lead.phone)}</td>
+                    <td>
+                      {/* Mudar a etapa direto na lista, sem abrir o lead */}
+                      <select
+                        value={lead.etapa}
+                        onChange={e => moverLead(lead.id, e.target.value)}
+                        style={{
+                          padding: '.15rem .3rem', borderRadius: 6, fontFamily: 'inherit',
+                          fontSize: '.78rem', fontWeight: 600, cursor: 'pointer',
+                          border: `1px solid ${ETAPAS.find(x => x.id === lead.etapa)?.cor || '#d5cbe6'}`,
+                          color: ETAPAS.find(x => x.id === lead.etapa)?.cor || '#4a3670',
+                          background: '#fff',
+                        }}
+                      >
+                        {ETAPAS.map(e => <option key={e.id} value={e.id}>{e.label}</option>)}
+                      </select>
+                    </td>
+                    <td><BadgeLead status={lead.client_status} /></td>
+                    <td><BadgeFonte fonte={lead.fonte} /></td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{formatData(lead.ultimo_acesso)}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{formatData(lead.ultimo_contato)}</td>
+                    <td style={{ maxWidth: 260, fontSize: '.8rem', color: '#6b5f80' }} title={lead.obs || ''}>
+                      {lead.obs || '—'}
+                    </td>
+                  </tr>
+                ))}
+                {!loading && daLista.length === 0 && (
+                  <tr><td colSpan={9} className="sem-resultado">Nenhum lead encontrado.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {modalEnvio && (
+        <ModalEnvioLeads
+          total={selecionados.size}
+          enviando={enviando}
+          modelos={modelos}
+          onRecarregarModelos={recarregarModelos}
+          onEnviar={enviarEmMassa}
+          onFechar={() => setModalEnvio(false)}
+        />
+      )}
+
+      {gerenciandoModelos && (
+        <ModalModelos
+          modelos={modelos}
+          onFechar={() => setGerenciandoModelos(false)}
+          onMudou={recarregarModelos}
+        />
+      )}
 
       {leadAberto && (
         <ModalLead
           lead={leadAberto}
+          modelos={modelos}
+          onRecarregarModelos={recarregarModelos}
           onFechar={() => setLeadAberto(null)}
           onSalvo={aoSalvarLead}
           onErro={e => setErro(e)}
