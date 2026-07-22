@@ -3,8 +3,15 @@ name: Build e publica imagem (GHCR)
 # Ao dar push/merge em main, builda a imagem única do projeto (backend-py/Dockerfile,
 # que já compila os dois frontends) e publica no GitHub Container Registry.
 # O deploy no servidor é feito pelo Watchtower, que observa a tag :latest.
+#
+# Em Pull Request o mesmo build roda, mas SEM publicar: serve só de check —
+# como merge em main vai direto para produção, o PR precisa provar que a
+# imagem compila antes. O cache é compartilhado, então o build do merge
+# aproveita o que o PR já montou.
 on:
   push:
+    branches: [main]
+  pull_request:
     branches: [main]
   workflow_dispatch: {}
 
@@ -30,7 +37,9 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Em PR não há publicação, então nem faz login no registry.
       - name: Login no GHCR
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -47,7 +56,8 @@ jobs:
           context: .
           file: ./backend-py/Dockerfile
           platforms: linux/amd64
-          push: true
+          # PR: só builda (check). push/merge em main: builda e publica.
+          push: ${{ github.event_name != 'pull_request' }}
           tags: |
             ${{ env.REGISTRY }}/${{ steps.prep.outputs.image }}:latest
             ${{ env.REGISTRY }}/${{ steps.prep.outputs.image }}:${{ github.sha }}
