@@ -1,0 +1,133 @@
+# ═══ Compose de PRODUÇÃO (servidor do hotspot) ═══════════════════════
+# Diferença para o docker-compose.yml de desenvolvimento: aqui ninguém builda.
+# As imagens vêm prontas do GHCR, publicadas pelo GitHub Actions a cada push
+# em main (.github/workflows/deploy.yml), e o Watchtower atualiza sozinho.
+#
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# O servidor só precisa deste arquivo + o .env; o código vem dentro da imagem.
+services:
+  evolution-api:
+    image: evoapicloud/evolution-api:v2.3.7
+    container_name: evolution-api
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    environment:
+      SERVER_URL: ${EVOLUTION_SERVER_URL:-http://localhost:8081}
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:-mude-esta-chave}
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:evolution@evolution-db:5432/evolution?schema=evolution_api
+      CACHE_REDIS_ENABLED: "false"
+      LOG_LEVEL: ERROR
+    depends_on:
+      - evolution-db
+    volumes:
+      - evolution_instances:/evolution/instances
+    # Sem label do Watchtower: a versão da Evolution é fixada de propósito
+    # (upgrade de major costuma quebrar a sessão do WhatsApp).
+
+  evolution-db:
+    image: postgres:15-alpine
+    container_name: evolution-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: evolution
+      POSTGRES_DB: evolution
+    volumes:
+      - evolution_pgdata:/var/lib/postgresql/data
+
+  db:
+    image: postgres:16-alpine
+    container_name: controle-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: controle
+      POSTGRES_USER: controle
+      POSTGRES_PASSWORD: controle
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U controle"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # SEM label do Watchtower de propósito: o banco nunca deve ser recriado
+    # automaticamente (risco aos dados).
+
+  # ── Área administrativa (FastAPI + React) ───────────────────────────
+  # Atualiza sozinha: é a única com o label do Watchtower.
+  admin:
+    image: ghcr.io/${GHCR_OWNER:-carlosmourajunior}/${GHCR_REPO:-via01hotspot}:${IMAGE_TAG:-latest}
+    pull_policy: always
+    container_name: admin-backend
+    restart: unless-stopped
+    # 8082 no host: a 8080 é a porta de inform da controladora UniFi neste servidor
+    ports:
+      - "8082:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://controle:controle@db:5432/controle
+      EVOLUTION_URL: http://evolution-api:8080
+    volumes:
+      - ./backend-py/uploads:/app/uploads
+      # jsonl do backend Node legado, para o script de importação de guests
+      - ./backend/data:/hotspot-data:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # ── Portal captivo (porta 80 — usada pelo redirect do UniFi) ────────
+  # Mesma imagem do admin, só muda o CMD. SEM label do Watchtower: recriar
+  # este container derruba o login do hotspot por alguns segundos, então a
+  # atualização é manual, em horário de baixo movimento:
+  #   docker compose -f docker-compose.prod.yml pull portal
+  #   docker compose -f docker-compose.prod.yml up -d portal
+  portal:
+    image: ghcr.io/${GHCR_OWNER:-carlosmourajunior}/${GHCR_REPO:-via01hotspot}:${IMAGE_TAG:-latest}
+    pull_policy: always
+    container_name: portal-backend
+    restart: unless-stopped
+    command: ["uvicorn", "portal:app", "--host", "0.0.0.0", "--port", "3000"]
+    ports:
+      - "80:3000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://controle:controle@db:5432/controle
+      EVOLUTION_URL: http://evolution-api:8080
+    depends_on:
+      db:
+        condition: service_healthy
+      evolution-api:
+        condition: service_started
+
+  # ── Watchtower: observa APENAS containers com o label enable=true ───
+  # Hoje só o "admin". Banco, Evolution e portal ficam de fora de propósito.
+  #
+  # Se o pacote no GHCR virar PRIVADO, rode uma vez no servidor:
+  #   docker login ghcr.io -u <usuario> -p <PAT com read:packages>
+  # e descomente o mount do config.json abaixo.
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # - ${HOME}/.docker/config.json:/config.json:ro
+    command: --label-enable --cleanup --interval ${WATCHTOWER_INTERVAL:-300}
+
+volumes:
+  evolution_instances:
+  evolution_pgdata:
+  pgdata:

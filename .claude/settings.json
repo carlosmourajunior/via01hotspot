@@ -31,7 +31,11 @@
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('registros retornados:', len\\(d.get\\('registros',[]\\)\\), '| total:', d.get\\('total'\\)\\)\")",
       "Bash(python -m py_compile main.py)",
       "Bash(python -m py_compile backend-py/main.py)",
-      "Bash(npx vite *)"
+      "Bash(npx vite *)",
+      "Bash(python -)",
+      "Bash(python -m py_compile db.py funil_admin.py)",
+      "Bash(docker version *)",
+      "Bash(gh repo *)"
     ]
   }
 }
