@@ -28,6 +28,7 @@ from dotenv import load_dotenv
 import db as hotspot_db
 from guests_admin import router as guests_router, reclassificar_guests
 from funil_admin import router as funil_router
+from cobranca_admin import router as cobranca_router
 
 load_dotenv()
 
@@ -66,6 +67,7 @@ _FUNCAO_ROTAS = [
     ("/api/ixc/sync-financeiro",       {"financeiro"}),
     ("/api/guests",                    {"vendas"}),
     ("/api/leads",                     {"vendas"}),
+    ("/api/cobranca",                  {"financeiro"}),
     ("/api/ixc/vendas",                {"vendas", "financeiro"}),
     ("/api/ixc/cancelamentos-ixc",     {"vendas", "financeiro"}),
     ("/api/ixc/contratos-manuais",     {"vendas", "financeiro"}),
@@ -4524,6 +4526,7 @@ def dashboard_excluir_kpi(kid: int, request: Request):
 # ── Acessos do hotspot (Wi-Fi guests) e funil de vendas ─────────────────────
 app.include_router(guests_router)
 app.include_router(funil_router)
+app.include_router(cobranca_router)
 
 
 # ── Frontend estático (build do frontend-admin) ─────────────────────────────
